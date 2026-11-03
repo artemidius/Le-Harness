@@ -780,8 +780,8 @@ dependencies = [
 
 [[package]]
 name = "le-rust"
-version = "0.1.0"
-source = "git+https://github.com/artemidius/Le-Rust?tag=v0.1.0#b470bd9b5a5a67704db90387f7dd919ea2b709db"
+version = "0.1.1"
+source = "git+https://github.com/artemidius/Le-Rust?tag=v0.1.1#c628281bec194c9ffaf6cfdb7a36c32c56dd2fc8"
 dependencies = [
  "bytes",
  "futures-core",

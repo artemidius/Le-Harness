@@ -3,6 +3,7 @@
 
 pub mod event;
 pub mod model;
+pub mod runtime;
 pub mod settings;
 
 pub const EVENT_SCHEMA_VERSION: u16 = 1;
