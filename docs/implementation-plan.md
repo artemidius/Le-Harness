@@ -10,7 +10,7 @@ Le Harness is delivered through eighteen sequential pull requests. Each PR is re
 | H03 | Repository discovery and read tools | Complete ([#4](https://github.com/artemidius/Le-Harness/pull/4)) |
 | H04 | Permission policy and approval flow | Complete ([#5](https://github.com/artemidius/Le-Harness/pull/5)) |
 | H05 | Command execution and isolation | Complete ([#6](https://github.com/artemidius/Le-Harness/pull/6)) |
-| H06 | Conventional edit transactions | Planned |
+| H06 | Conventional edit transactions | Complete ([#7](https://github.com/artemidius/Le-Harness/pull/7)) |
 | H07 | Usable CLI and Git workflow | Planned |
 | H08 | Codestral FIM editing | Planned |
 | H09 | Evaluation harness and baseline report | Planned |

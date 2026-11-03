@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 
+pub mod edit;
 pub mod event;
 pub mod execution;
 pub mod model;
