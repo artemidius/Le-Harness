@@ -7,6 +7,19 @@ Le Harness is a Rust coding-agent runtime for the Mistral ecosystem. It is desig
 
 The project is under active development. Its current version is not a production release.
 
+## Provider configuration
+
+Le Harness uses the tagged Le Rust SDK for native Mistral model discovery, streamed chat, and FIM completions. Configure the provider without placing credentials in repository files:
+
+```text
+export MISTRAL_API_KEY=...
+export LE_HARNESS_CHAT_MODEL=...
+export LE_HARNESS_FIM_MODEL=...
+le-harness doctor --live
+```
+
+`doctor` reports whether credentials are present but never prints their value. Model identifiers stay explicit because availability varies by account.
+
 ## Design boundaries
 
 - [Le Rust](https://github.com/artemidius/Le-Rust) owns Mistral API transport and native wire types.
