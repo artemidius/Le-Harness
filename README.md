@@ -20,6 +20,23 @@ le-harness doctor --live
 
 `doctor` reports whether credentials are present but never prints their value. Model identifiers stay explicit because availability varies by account.
 
+## Run a session
+
+The default assisted mode allows repository reads and asks before each exact write or command:
+
+```text
+le-harness run "Explain the failing test and fix it" --root .
+```
+
+Use `--mode inspect` for a read-only session. Automated execution is accepted only with the Docker backend:
+
+```text
+le-harness run "Run the test suite and repair the failure" \
+  --mode automated-sandbox --execution docker
+```
+
+`--json` emits the terminal state, answer, versioned runtime events, counters, and Git before/after evidence. It is deliberately non-interactive, so approval-requiring operations are denied.
+
 ## Design boundaries
 
 - [Le Rust](https://github.com/artemidius/Le-Rust) owns Mistral API transport and native wire types.

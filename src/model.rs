@@ -5,7 +5,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures_core::Stream;
 use futures_util::{StreamExt, stream};
-use le_rust::chat::{ChatRequest, CompletionTextError, Content, Message, ToolArguments};
+use le_rust::chat::{
+    ChatRequest, CompletionTextError, Content, FunctionDefinition, Message, Tool, ToolArguments,
+    ToolChoice,
+};
 use le_rust::fim::FimRequest;
 use le_rust::models::ListModelsOptions;
 use le_rust::{Client, RequestOptions};
@@ -21,12 +24,14 @@ pub type ModelEventStream =
 #[derive(Debug, Clone)]
 pub struct ChatTurn {
     pub messages: Vec<Message>,
+    pub tools: Vec<Tool>,
 }
 
 impl ChatTurn {
     pub fn user(prompt: impl Into<String>) -> Self {
         Self {
             messages: vec![Message::user(prompt.into())],
+            tools: coding_tools(),
         }
     }
 }
@@ -112,7 +117,10 @@ impl ModelAdapter for MistralAdapter {
             .client
             .chat()
             .stream(
-                ChatRequest::new(&self.chat_model, turn.messages),
+                ChatRequest::new(&self.chat_model, turn.messages)
+                    .tools(turn.tools)
+                    .tool_choice(ToolChoice::Auto)
+                    .parallel_tool_calls(false),
                 RequestOptions::default(),
             )
             .await?;
@@ -136,6 +144,44 @@ impl ModelAdapter for MistralAdapter {
             .await?;
         Ok(response.data.first_text()?.to_owned())
     }
+}
+
+pub fn coding_tools() -> Vec<Tool> {
+    vec![
+        tool(
+            "list_files",
+            "List repository files",
+            serde_json::json!({"type":"object","properties":{},"additionalProperties":false}),
+        ),
+        tool(
+            "read_file",
+            "Read a UTF-8 repository file",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}),
+        ),
+        tool(
+            "search",
+            "Search literal text in repository files",
+            serde_json::json!({"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}),
+        ),
+        tool(
+            "replace_span",
+            "Replace an exact UTF-8 byte span using a snapshot hash",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":0},"replacement":{"type":"string"}},"required":["path","expected_sha256","start","end","replacement"],"additionalProperties":false}),
+        ),
+        tool(
+            "run_command",
+            "Run a bounded command using an executable and argument vector",
+            serde_json::json!({"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"working_directory":{"type":"string"},"environment":{"type":"object","additionalProperties":{"type":"string"}},"network":{"type":"boolean"}},"required":["program"],"additionalProperties":false}),
+        ),
+    ]
+}
+
+fn tool(name: &str, description: &str, parameters: serde_json::Value) -> Tool {
+    Tool::function(
+        FunctionDefinition::new(name, parameters)
+            .description(description)
+            .strict(true),
+    )
 }
 
 fn chunk_events(chunk: le_rust::chat::CompletionChunk) -> Vec<ModelEvent> {
