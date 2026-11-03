@@ -2,6 +2,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod event;
+pub mod execution;
 pub mod model;
 pub mod policy;
 pub mod repository;

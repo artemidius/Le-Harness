@@ -51,6 +51,16 @@ async fn doctor(live: bool) -> Result<(), Box<dyn std::error::Error>> {
         "FIM model: {}",
         diagnostic.fim_model.as_deref().unwrap_or("missing")
     );
+    let docker = std::process::Command::new("docker")
+        .args(["info", "--format", "{{.ServerVersion}}"])
+        .output();
+    match docker {
+        Ok(output) if output.status.success() => println!(
+            "Docker isolation: available (server {})",
+            String::from_utf8_lossy(&output.stdout).trim()
+        ),
+        _ => println!("Docker isolation: unavailable (native execution is not a sandbox)"),
+    }
     if live {
         let settings = MistralSettings::from_env()?;
         let adapter = MistralAdapter::from_settings(&settings)?;
