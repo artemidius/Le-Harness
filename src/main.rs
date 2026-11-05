@@ -16,6 +16,7 @@ use le_harness::policy::{
     InteractivePolicyToolHandler, PermissionMode, PermissionPolicy, ToolEffects,
 };
 use le_harness::repository::{Repository, RepositoryToolHandler, RepositoryToolLimits};
+use le_harness::router::{HybridRouter, RouteBudgets};
 use le_harness::runtime::{AgentController, AgentLimits};
 use le_harness::settings::MistralSettings;
 use le_harness::tools::CodingTools;
@@ -169,6 +170,13 @@ async fn doctor(live: bool) -> Result<(), Box<dyn std::error::Error>> {
         "FIM model: {}",
         diagnostic.fim_model.as_deref().unwrap_or("missing")
     );
+    println!(
+        "utility model: {}",
+        diagnostic
+            .utility_model
+            .as_deref()
+            .unwrap_or("same as chat model")
+    );
     let docker = std::process::Command::new("docker")
         .args(["info", "--format", "{{.ServerVersion}}"])
         .output();
@@ -183,7 +191,11 @@ async fn doctor(live: bool) -> Result<(), Box<dyn std::error::Error>> {
         let settings = MistralSettings::from_env()?;
         let adapter = MistralAdapter::from_settings(&settings)?;
         let models = adapter.list_models().await?;
-        for (role, model) in [("chat", settings.chat_model), ("FIM", settings.fim_model)] {
+        for (role, model) in [
+            ("chat", settings.chat_model),
+            ("FIM", settings.fim_model),
+            ("utility", settings.utility_model),
+        ] {
             println!(
                 "{role} model {model}: {}",
                 if models.contains(&model) {
@@ -226,7 +238,20 @@ async fn run(
         CliExecution::Docker => Arc::new(DockerExecution::new(&root, image, limits)?),
     };
     let settings = MistralSettings::from_env()?;
-    let model = MistralAdapter::from_settings(&settings)?;
+    let planner = MistralAdapter::from_settings(&settings)?;
+    let fim_model = MistralAdapter::from_settings(&settings)?;
+    let utility = MistralAdapter::from_settings_with_chat(&settings, &settings.utility_model)?;
+    let model = Arc::new(HybridRouter::new(
+        planner,
+        fim_model,
+        utility,
+        [
+            settings.chat_model.clone(),
+            settings.fim_model.clone(),
+            settings.utility_model.clone(),
+        ],
+        RouteBudgets::default(),
+    ));
     let fim = Arc::new(FimEditEngine::new(
         model.clone(),
         editor.clone(),
