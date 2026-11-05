@@ -7,6 +7,7 @@ pub mod eval;
 pub mod event;
 pub mod execution;
 pub mod fim;
+pub mod mcp;
 pub mod model;
 pub mod policy;
 pub mod repository;
