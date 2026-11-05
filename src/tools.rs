@@ -4,6 +4,7 @@ use async_trait::async_trait;
 
 use crate::edit::{SpanEdit, WorkspaceEditor};
 use crate::execution::{CommandSpec, ExecutionBackend};
+use crate::fim::{FimEditRequest, FimService};
 use crate::repository::RepositoryToolHandler;
 use crate::runtime::{ToolHandler, ToolInvocation, ToolResult};
 
@@ -11,6 +12,7 @@ pub struct CodingTools {
     repository: RepositoryToolHandler,
     editor: WorkspaceEditor,
     execution: Arc<dyn ExecutionBackend>,
+    fim: Option<Arc<dyn FimService>>,
 }
 
 impl CodingTools {
@@ -23,7 +25,13 @@ impl CodingTools {
             repository,
             editor,
             execution,
+            fim: None,
         }
+    }
+
+    pub fn with_fim(mut self, fim: Arc<dyn FimService>) -> Self {
+        self.fim = Some(fim);
+        self
     }
 }
 
@@ -47,6 +55,24 @@ impl ToolHandler for CodingTools {
                         serde_json::json!({"applied":applied,"diff":diff}).to_string(),
                     ),
                     Err(error) => ToolResult::error(error.to_string()),
+                }
+            }
+            "fim_replace_span" => {
+                let Some(fim) = &self.fim else {
+                    return ToolResult::error("FIM editing is not configured");
+                };
+                let request: FimEditRequest = match serde_json::from_str(&invocation.arguments) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        return ToolResult::error(format!("invalid FIM arguments: {error}"));
+                    }
+                };
+                match fim.apply_fim(request).await {
+                    Ok(outcome) => match serde_json::to_string(&outcome) {
+                        Ok(output) => ToolResult::success(output),
+                        Err(error) => ToolResult::error(error.to_string()),
+                    },
+                    Err(error) => ToolResult::error(error),
                 }
             }
             "run_command" => {

@@ -169,6 +169,11 @@ pub fn coding_tools() -> Vec<Tool> {
             serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":0},"replacement":{"type":"string"}},"required":["path","expected_sha256","start","end","replacement"],"additionalProperties":false}),
         ),
         tool(
+            "fim_replace_span",
+            "Fill a verified code span using Codestral FIM",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":0},"fallback_replacement":{"type":"string"}},"required":["path","expected_sha256","start","end"],"additionalProperties":false}),
+        ),
+        tool(
             "run_command",
             "Run a bounded command using an executable and argument vector",
             serde_json::json!({"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"working_directory":{"type":"string"},"environment":{"type":"object","additionalProperties":{"type":"string"}},"network":{"type":"boolean"}},"required":["program"],"additionalProperties":false}),

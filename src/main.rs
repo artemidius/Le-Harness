@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use clap::{Parser, Subcommand, ValueEnum};
 use le_harness::edit::WorkspaceEditor;
 use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, NativeExecution};
+use le_harness::fim::FimEditEngine;
 use le_harness::model::{MistralAdapter, ModelAdapter};
 use le_harness::policy::{
     ApprovalBinding, ApprovalRequest, ApprovalStore, Approver, Effect,
@@ -172,12 +173,20 @@ async fn run(
         }
         CliExecution::Docker => Arc::new(DockerExecution::new(&root, image, limits)?),
     };
-    let tools = CodingTools::new(repository_tools, editor, backend);
+    let settings = MistralSettings::from_env()?;
+    let model = MistralAdapter::from_settings(&settings)?;
+    let fim = Arc::new(FimEditEngine::new(
+        model.clone(),
+        editor.clone(),
+        512 * 1024,
+    ));
+    let tools = CodingTools::new(repository_tools, editor, backend).with_fim(fim);
     let effects = ToolEffects::default()
         .register("list_files", Effect::Read)
         .register("read_file", Effect::Read)
         .register("search", Effect::Read)
         .register("replace_span", Effect::Write)
+        .register("fim_replace_span", Effect::Write)
         .register("run_command", Effect::Execute);
     let approvals = ApprovalStore::default();
     let policy = PermissionPolicy::new(mode.into(), approvals.clone());
@@ -188,7 +197,6 @@ async fn run(
         approvals,
         ConsoleApprover { enabled: !json },
     );
-    let model = MistralAdapter::from_settings(&MistralSettings::from_env()?)?;
     let controller = AgentController::new(model, tools, AgentLimits::default());
     let cancellation = controller.cancellation_token();
     let operation = controller.run(prompt);
