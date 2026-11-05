@@ -39,6 +39,16 @@ le-harness run "Run the test suite and repair the failure" \
 
 `--json` emits the terminal state, answer, versioned runtime events, counters, and Git before/after evidence. It is deliberately non-interactive, so approval-requiring operations are denied.
 
+To keep every model request on a loopback OpenAI-compatible server:
+
+```text
+le-harness run "Inspect this repository" --local-only \
+  --local-base-url http://127.0.0.1:8000/v1/ \
+  --local-model devstral-local
+```
+
+Add `--local-fim-model <id>` only when the server implements the compatible FIM endpoint. Without `--local-only`, the configured local model is used for the utility route and cloud planner/FIM configuration remains required.
+
 ## Design boundaries
 
 - [Le Rust](https://github.com/artemidius/Le-Rust) owns Mistral API transport and native wire types.

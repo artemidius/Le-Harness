@@ -128,6 +128,18 @@ impl MistralAdapter {
         })
     }
 
+    pub fn from_client(
+        client: Client,
+        chat_model: impl Into<String>,
+        fim_model: impl Into<String>,
+    ) -> Self {
+        Self {
+            client,
+            chat_model: chat_model.into(),
+            fim_model: fim_model.into(),
+        }
+    }
+
     pub fn from_settings_with_chat(
         settings: &MistralSettings,
         chat_model: impl Into<String>,
