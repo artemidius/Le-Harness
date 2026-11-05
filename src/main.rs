@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use clap::{Parser, Subcommand, ValueEnum};
 use le_harness::edit::WorkspaceEditor;
+use le_harness::eval::{EvalManifest, EvalMode};
 use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, NativeExecution};
 use le_harness::fim::FimEditEngine;
 use le_harness::model::{MistralAdapter, ModelAdapter};
@@ -55,6 +56,20 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Run a repeatable evaluation manifest.
+    Eval {
+        /// Versioned JSON task manifest.
+        manifest: PathBuf,
+        /// Candidate strategy to measure.
+        #[arg(long, value_enum)]
+        mode: CliEvalMode,
+        /// Runs per case.
+        #[arg(long, default_value_t = 5)]
+        repetitions: u32,
+        /// Report format.
+        #[arg(long, value_enum, default_value = "json")]
+        format: ReportFormat,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -80,6 +95,18 @@ enum CliExecution {
     Docker,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliEvalMode {
+    Conventional,
+    Fim,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ReportFormat {
+    Json,
+    Markdown,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -97,7 +124,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             image,
             json,
         }) => run(prompt, root, mode, execution, image, json).await?,
+        Some(Command::Eval {
+            manifest,
+            mode,
+            repetitions,
+            format,
+        }) => evaluate(&manifest, mode, repetitions, format)?,
         None => println!("Run `le-harness --help` to get started."),
+    }
+    Ok(())
+}
+
+fn evaluate(
+    path: &Path,
+    mode: CliEvalMode,
+    repetitions: u32,
+    format: ReportFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest: EvalManifest = serde_json::from_slice(&std::fs::read(path)?)?;
+    let mode = match mode {
+        CliEvalMode::Conventional => EvalMode::Conventional,
+        CliEvalMode::Fim => EvalMode::Fim,
+    };
+    let report = manifest.run(mode, repetitions)?;
+    match format {
+        ReportFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        ReportFormat::Markdown => print!("{}", report.markdown()),
     }
     Ok(())
 }
