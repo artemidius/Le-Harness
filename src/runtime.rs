@@ -7,6 +7,7 @@ use futures_util::StreamExt;
 use le_rust::chat::{Message, ToolCall};
 use serde::{Deserialize, Serialize};
 
+use crate::context::{ContextPolicy, compact};
 use crate::event::RuntimeEvent;
 use crate::model::coding_tools;
 use crate::model::{ChatTurn, ModelAdapter, ModelEvent};
@@ -17,6 +18,7 @@ pub struct AgentLimits {
     pub max_tool_calls: u32,
     pub max_model_events: u32,
     pub max_output_bytes: usize,
+    pub max_context_tokens_estimate: usize,
 }
 
 impl Default for AgentLimits {
@@ -26,6 +28,7 @@ impl Default for AgentLimits {
             max_tool_calls: 32,
             max_model_events: 10_000,
             max_output_bytes: 4 * 1024 * 1024,
+            max_context_tokens_estimate: 32_000,
         }
     }
 }
@@ -136,10 +139,30 @@ where
                 "model.requested",
                 serde_json::json!({"number": state.model_requests}),
             );
+            let context = compact(
+                &state.messages,
+                ContextPolicy {
+                    max_estimated_tokens: self.limits.max_context_tokens_estimate,
+                    recent_units: 8,
+                    max_summary_bytes: 8 * 1024,
+                },
+            );
+            if context.removed_units > 0 {
+                state.record(
+                    "context.compacted",
+                    serde_json::json!({
+                        "estimated_tokens_before":context.estimated_tokens_before,
+                        "estimated_tokens_after":context.estimated_tokens_after,
+                        "removed_units":context.removed_units,
+                        "within_budget":context.within_budget,
+                        "estimator":"serialized_bytes_div_4"
+                    }),
+                );
+            }
             let response = self
                 .model
                 .stream_chat(ChatTurn {
-                    messages: state.messages.clone(),
+                    messages: context.messages,
                     tools: coding_tools(),
                 })
                 .await;
