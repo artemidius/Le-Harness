@@ -3,62 +3,226 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify and stage
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.88.0
 
 jobs:
-  build:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+      notes_file: ${{ steps.metadata.outputs.notes_file }}
+      commit: ${{ steps.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - id: metadata
+        name: Validate tag, package metadata, and release notes
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          python3 scripts/release/validate_release.py \
+            --tag "$RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT"
+          commit="$(git rev-parse HEAD)"
+          test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            archive: le-harness-x86_64-unknown-linux-gnu.tar.gz
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    container: debian:12-slim
+    steps:
+      - name: Install pinned build environment
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates curl file git pkg-config
+          rm -rf /var/lib/apt/lists/*
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build release binary
+        run: cargo build --locked --release --target "${{ matrix.target }}"
+      - name: Smoke test and inspect runtime dependencies
+        shell: bash
+        run: |
+          binary="target/${{ matrix.target }}/release/le-harness"
+          test "$("$binary" --version)" = "le-harness ${{ needs.validate.outputs.version }}"
+          "$binary" --no-input doctor > runtime-doctor.txt
+          ldd "$binary" > "runtime-${{ matrix.target }}-ldd.txt"
+          file "$binary" > "runtime-${{ matrix.target }}-file.txt"
+      - name: Create versioned archive
+        shell: bash
+        run: |
+          mkdir -p package out
+          cp "target/${{ matrix.target }}/release/le-harness" LICENSE README.md package/
+          archive="le-harness-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.tar.gz"
+          tar -C package -czf "out/$archive" .
+          mv runtime-*.txt out/
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  build-portable:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - os: macos-15
             target: aarch64-apple-darwin
-            archive: le-harness-aarch64-apple-darwin.tar.gz
+            extension: tar.gz
           - os: windows-2025
             target: x86_64-pc-windows-msvc
-            archive: le-harness-x86_64-pc-windows-msvc.zip
+            extension: zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: release-${{ matrix.target }}
       - run: cargo build --locked --release --target ${{ matrix.target }}
-      - name: Package Unix binary
+      - name: Smoke test and package Unix binary
         if: runner.os != 'Windows'
         shell: bash
-        run: tar -C target/${{ matrix.target }}/release -czf ${{ matrix.archive }} le-harness
-      - name: Package Windows binary
+        run: |
+          binary="target/${{ matrix.target }}/release/le-harness"
+          test "$("$binary" --version)" = "le-harness ${{ needs.validate.outputs.version }}"
+          "$binary" --no-input doctor > runtime-doctor.txt
+          mkdir -p package out
+          cp "$binary" LICENSE README.md package/
+          archive="le-harness-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.tar.gz"
+          tar -C package -czf "out/$archive" .
+      - name: Smoke test and package Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path target/${{ matrix.target }}/release/le-harness.exe -DestinationPath ${{ matrix.archive }}
+        run: |
+          $binary = "target/${{ matrix.target }}/release/le-harness.exe"
+          $actualVersion = & $binary --version
+          if ($actualVersion -ne "le-harness ${{ needs.validate.outputs.version }}") {
+            throw "unexpected binary version: $actualVersion"
+          }
+          & $binary --no-input doctor | Out-File -Encoding utf8 runtime-doctor.txt
+          New-Item -ItemType Directory -Force package, out | Out-Null
+          Copy-Item $binary, LICENSE, README.md package/
+          $archive = "le-harness-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.zip"
+          Compress-Archive -Path package/* -DestinationPath "out/$archive"
       - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.target }}
-          path: ${{ matrix.archive }}
+          name: release-${{ matrix.target }}
+          path: out/*
           if-no-files-found: error
+          retention-days: 7
 
-  publish:
-    needs: build
+  manifest:
+    needs: [validate, build-linux, build-portable]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
         with:
-          path: artifacts
+          pattern: release-*
+          path: release
           merge-multiple: true
-      - name: Create checksums
-        working-directory: artifacts
-        run: sha256sum * > SHA256SUMS
-      - name: Publish GitHub prerelease
+      - name: Assemble and verify release inventory
+        run: |
+          python3 scripts/release/assemble_manifest.py \
+            --directory release \
+            --tag "${{ needs.validate.outputs.tag }}" \
+            --commit "${{ needs.validate.outputs.commit }}"
+          (cd release && sha256sum --check SHA256SUMS)
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-bundle
+          path: |
+            release/le-harness-*.tar.gz
+            release/le-harness-*.zip
+            release/release-manifest.json
+            release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-draft:
+    needs: [validate, manifest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-bundle
+          path: release
+      - name: Create or verify draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" artifacts/* --prerelease --verify-tag --title "Le Harness ${{ github.ref_name }}" --notes-file docs/release-notes-v0.1.0-rc.2.md
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_TITLE: Le Harness ${{ needs.validate.outputs.tag }}
+          NOTES_FILE: ${{ needs.validate.outputs.notes_file }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+        shell: bash
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            flags=(--draft --verify-tag --title "$RELEASE_TITLE" --notes-file "$NOTES_FILE")
+            if [[ "$PRERELEASE" == "true" ]]; then
+              flags+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${flags[@]}"
+          fi
+
+          mapfile -t assets < <(
+            jq -r '.artifacts[].name' release/release-manifest.json
+            printf '%s\n' release-manifest.json SHA256SUMS
+          )
+          existing="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          for asset in "${assets[@]}"; do
+            if grep -Fxq "$asset" <<< "$existing"; then
+              directory="$(mktemp -d)"
+              gh release download "$RELEASE_TAG" --pattern "$asset" --dir "$directory"
+              cmp "release/$asset" "$directory/$asset"
+              rm -rf "$directory"
+            else
+              gh release upload "$RELEASE_TAG" "release/$asset"
+            fi
+          done
