@@ -1,7 +1,8 @@
 #![allow(clippy::print_stderr, clippy::print_stdout)]
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,13 +22,19 @@ use le_harness::repository::{Repository, RepositoryToolHandler, RepositoryToolLi
 use le_harness::router::{HybridRouter, RouteBudgets, RouteCapabilities};
 use le_harness::runtime::{AgentController, AgentLimits};
 use le_harness::session::SessionStore;
-use le_harness::settings::MistralSettings;
+use le_harness::settings::{
+    ApiKey, CredentialPrompt, InteractionPolicy, MistralModelConfig, MistralSettings,
+    SettingsError, resolve_api_key,
+};
 use le_harness::tools::CodingTools;
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
 #[command(name = "le-harness", version, about)]
 struct Cli {
+    /// Disable all interactive prompts.
+    #[arg(long, global = true)]
+    no_input: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -190,6 +197,7 @@ struct RunConfig {
     execution: CliExecution,
     image: String,
     json: bool,
+    no_input: bool,
     mcp_config: Option<PathBuf>,
     local: LocalCliConfig,
     session_dir: Option<PathBuf>,
@@ -204,18 +212,30 @@ struct RoutedModels {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> ExitCode {
+    match run_cli().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
 
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    let no_input = cli.no_input;
+    match cli.command {
         Some(Command::Doctor {
             live,
             local_base_url,
             local_model,
-        }) => doctor(live, local_base_url, local_model).await?,
+        }) => doctor(live, local_base_url, local_model, no_input).await?,
         Some(Command::Run {
             prompt,
             root,
@@ -239,6 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 execution,
                 image,
                 json,
+                no_input,
                 mcp_config,
                 local: LocalCliConfig {
                     base_url: local_base_url,
@@ -318,6 +339,7 @@ async fn doctor(
     live: bool,
     local_base_url: Option<String>,
     local_model: Option<String>,
+    no_input: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let diagnostic = MistralSettings::diagnostic();
     println!("Le Harness {}", env!("CARGO_PKG_VERSION"));
@@ -351,14 +373,34 @@ async fn doctor(
         _ => println!("Docker isolation: unavailable (native execution is not a sandbox)"),
     }
     if live {
-        let settings = MistralSettings::from_env()?;
-        let adapter = MistralAdapter::from_settings(&settings)?;
-        let models = adapter.list_models().await?;
-        for (role, model) in [
-            ("chat", settings.chat_model),
-            ("FIM", settings.fim_model),
-            ("utility", settings.utility_model),
-        ] {
+        let api_key = resolve_mistral_key(no_input, false)?;
+        let adapter = MistralAdapter::from_credentials(
+            &api_key,
+            "discovery-only",
+            "discovery-only",
+            configured_mistral_base_url().as_deref(),
+        )?;
+        let mut models = adapter.list_models().await?;
+        models.sort();
+        println!("available Mistral models:");
+        for model in &models {
+            println!("  {model}");
+        }
+        let configured = [
+            ("chat", diagnostic.chat_model.clone()),
+            ("FIM", diagnostic.fim_model.clone()),
+            (
+                "utility",
+                diagnostic
+                    .utility_model
+                    .clone()
+                    .or_else(|| diagnostic.chat_model.clone()),
+            ),
+        ];
+        for (role, model) in configured
+            .into_iter()
+            .filter_map(|(role, model)| model.map(|model| (role, model)))
+        {
             println!(
                 "{role} model {model}: {}",
                 if models.contains(&model) {
@@ -398,6 +440,7 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         execution,
         image,
         json,
+        no_input,
         mcp_config,
         local,
         session_dir,
@@ -463,21 +506,20 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
             ],
         }
     } else {
-        let settings = MistralSettings::from_env()?;
+        let models = MistralModelConfig::from_env()?;
+        let api_key = resolve_mistral_key(no_input, json)?;
+        let settings = MistralSettings::from_parts(api_key, models);
         let utility_label = local
             .model
             .clone()
             .unwrap_or_else(|| settings.utility_model.clone());
         let utility: Arc<dyn ModelAdapter> = match local_adapter {
             Some(adapter) => Arc::new(adapter),
-            None => Arc::new(MistralAdapter::from_settings_with_chat(
-                &settings,
-                &settings.utility_model,
-            )?),
+            None => Arc::new(mistral_adapter(&settings, &settings.utility_model)?),
         };
         RoutedModels {
-            planner: Arc::new(MistralAdapter::from_settings(&settings)?),
-            fim: Arc::new(MistralAdapter::from_settings(&settings)?),
+            planner: Arc::new(mistral_adapter(&settings, &settings.chat_model)?),
+            fim: Arc::new(mistral_adapter(&settings, &settings.chat_model)?),
             utility,
             labels: [settings.chat_model, settings.fim_model, utility_label],
         }
@@ -535,7 +577,9 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         effects,
         policy,
         approvals,
-        ConsoleApprover { enabled: !json },
+        ConsoleApprover {
+            enabled: !json && !no_input,
+        },
     );
     let controller =
         AgentController::new(model, tools, AgentLimits::default()).with_tool_catalog(catalog);
@@ -579,6 +623,77 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+struct TerminalCredentialPrompt;
+
+impl CredentialPrompt for TerminalCredentialPrompt {
+    fn prompt_api_key(&mut self) -> Result<String, SettingsError> {
+        rpassword::prompt_password("Mistral API key (hidden; used for this process only): ")
+            .map_err(|error| match error.kind() {
+                io::ErrorKind::Interrupted | io::ErrorKind::UnexpectedEof => {
+                    SettingsError::InputCancelled
+                }
+                _ => SettingsError::PromptFailed(error.to_string()),
+            })
+    }
+}
+
+fn resolve_mistral_key(no_input: bool, json: bool) -> Result<ApiKey, SettingsError> {
+    let policy = credential_interaction_policy(
+        no_input,
+        json,
+        ci_environment(),
+        io::stdin().is_terminal(),
+        io::stderr().is_terminal(),
+    );
+    resolve_api_key(
+        std::env::var("MISTRAL_API_KEY").ok(),
+        policy,
+        &mut TerminalCredentialPrompt,
+    )
+}
+
+fn credential_interaction_policy(
+    no_input: bool,
+    json: bool,
+    ci: bool,
+    input_terminal: bool,
+    diagnostic_terminal: bool,
+) -> InteractionPolicy {
+    if no_input || json || ci || !input_terminal || !diagnostic_terminal {
+        InteractionPolicy::Deny
+    } else {
+        InteractionPolicy::Allow
+    }
+}
+
+fn ci_environment() -> bool {
+    std::env::var("CI").is_ok_and(|value| {
+        !value.trim().is_empty()
+            && !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
+    })
+}
+
+fn configured_mistral_base_url() -> Option<String> {
+    std::env::var("LE_HARNESS_MISTRAL_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn mistral_adapter(
+    settings: &MistralSettings,
+    chat_model: &str,
+) -> Result<MistralAdapter, le_harness::model::ModelError> {
+    MistralAdapter::from_credentials(
+        &settings.api_key,
+        chat_model,
+        &settings.fim_model,
+        configured_mistral_base_url().as_deref(),
+    )
 }
 
 struct ConsoleApprover {
@@ -691,6 +806,33 @@ mod tests {
                 json: true,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn interactive_credentials_require_an_explicitly_interactive_context() {
+        assert_eq!(
+            credential_interaction_policy(false, false, false, true, true),
+            InteractionPolicy::Allow
+        );
+        for policy in [
+            credential_interaction_policy(true, false, false, true, true),
+            credential_interaction_policy(false, true, false, true, true),
+            credential_interaction_policy(false, false, true, true, true),
+            credential_interaction_policy(false, false, false, false, true),
+            credential_interaction_policy(false, false, false, true, false),
+        ] {
+            assert_eq!(policy, InteractionPolicy::Deny);
+        }
+    }
+
+    #[test]
+    fn no_input_is_a_global_flag() {
+        let cli = Cli::try_parse_from(["le-harness", "doctor", "--live", "--no-input"]).unwrap();
+        assert!(cli.no_input);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Doctor { live: true, .. })
         ));
     }
 }

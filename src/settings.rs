@@ -142,7 +142,9 @@ pub enum SettingsError {
     Missing(&'static str),
     #[error("Mistral API key must not be empty or contain control characters")]
     InvalidApiKey,
-    #[error("MISTRAL_API_KEY is missing and interactive credential input is disabled")]
+    #[error(
+        "MISTRAL_API_KEY is missing and interactive input is unavailable; set the environment variable or run in a terminal without --no-input/--json"
+    )]
     PromptDisabled,
     #[error("Mistral API key input was cancelled")]
     InputCancelled,

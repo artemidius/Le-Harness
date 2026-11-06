@@ -10,6 +10,7 @@
 | Routing | capability, budget, and fallback event tests | configured cloud/local models |
 | MCP | stdio discovery/call fixture and effect rejection | selected third-party server |
 | Local inference | loopback discovery, stream, and FIM protocol fixture | Ollama/vLLM model behavior |
+| Credential input | Unix PTY echo/cancel/restore test, loopback Authorization assertion, noninteractive fail-fast tests | Windows console acceptance check |
 | Sessions/TUI | journal tamper/resume and test-backend render tests | interactive terminal check |
 
 The CI quality job runs formatting, strict Clippy, documentation, and all tests

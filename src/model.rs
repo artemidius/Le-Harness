@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::settings::MistralSettings;
+use crate::settings::{ApiKey, MistralSettings};
 
 pub type ModelEventStream =
     Pin<Box<dyn Stream<Item = Result<ModelEvent, ModelError>> + Send + 'static>>;
@@ -120,13 +120,29 @@ pub struct MistralAdapter {
 
 impl MistralAdapter {
     pub fn from_settings(settings: &MistralSettings) -> Result<Self, ModelError> {
-        let client = Client::builder()
-            .api_key(settings.api_key.expose())
-            .build()?;
+        Self::from_credentials(
+            &settings.api_key,
+            settings.chat_model.clone(),
+            settings.fim_model.clone(),
+            None,
+        )
+    }
+
+    pub fn from_credentials(
+        api_key: &ApiKey,
+        chat_model: impl Into<String>,
+        fim_model: impl Into<String>,
+        base_url: Option<&str>,
+    ) -> Result<Self, ModelError> {
+        let mut builder = Client::builder().api_key(api_key.expose());
+        if let Some(base_url) = base_url {
+            builder = builder.base_url(base_url).allow_insecure_loopback(true);
+        }
+        let client = builder.build()?;
         Ok(Self {
             client,
-            chat_model: settings.chat_model.clone(),
-            fim_model: settings.fim_model.clone(),
+            chat_model: chat_model.into(),
+            fim_model: fim_model.into(),
         })
     }
 
