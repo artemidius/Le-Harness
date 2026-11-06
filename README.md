@@ -73,7 +73,7 @@ events, the selected event's structured payload, terminal status, and answer.
 - Model output never grants authority to modify a workspace or execute a command.
 - Runtime events use a versioned JSON envelope so sessions and machine-readable output remain inspectable.
 
-See the [architecture](docs/architecture/overview.md), [threat model](docs/architecture/threat-model.md), and [delivery plan](docs/implementation-plan.md).
+See the [architecture](docs/architecture/overview.md), [threat model](docs/architecture/threat-model.md), [configuration reference](docs/configuration.md), [limitations](docs/limitations.md), [validation matrix](docs/validation.md), and [delivery plan](docs/implementation-plan.md).
 
 ## Development
 
@@ -81,9 +81,9 @@ The minimum supported Rust version is 1.88.
 
 ```text
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features
 ```
 
 ## License
