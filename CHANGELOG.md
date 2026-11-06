@@ -4,6 +4,10 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.2 - 2026-11-13
+
+- Updated the macOS ARM release runner to the current hosted image label.
+
 ## 0.1.0-rc.1 - 2026-11-13
 
 - Added a bounded, cancellable agent controller with versioned runtime events.
