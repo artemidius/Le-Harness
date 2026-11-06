@@ -109,6 +109,14 @@ enum Command {
         #[command(subcommand)]
         command: SessionCommand,
     },
+    /// Explore a persisted execution trace in an interactive terminal UI.
+    Tui {
+        /// Session identifier returned by `run` or `session list`.
+        id: String,
+        /// Exact journal directory.
+        #[arg(long)]
+        session_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -251,6 +259,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format,
         }) => evaluate(&manifest, mode, repetitions, format)?,
         Some(Command::Session { command }) => session_command(command)?,
+        Some(Command::Tui { id, session_dir }) => {
+            use std::io::IsTerminal;
+            if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                return Err("TUI requires an interactive terminal".into());
+            }
+            le_harness::tui::run(session_store(session_dir)?.load(&id)?)?;
+        }
         None => println!("Run `le-harness --help` to get started."),
     }
     Ok(())
