@@ -14,6 +14,7 @@ pub mod policy;
 pub mod repository;
 pub mod router;
 pub mod runtime;
+pub mod session;
 pub mod settings;
 pub mod tools;
 

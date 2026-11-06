@@ -20,6 +20,7 @@ use le_harness::policy::{
 use le_harness::repository::{Repository, RepositoryToolHandler, RepositoryToolLimits};
 use le_harness::router::{HybridRouter, RouteBudgets, RouteCapabilities};
 use le_harness::runtime::{AgentController, AgentLimits};
+use le_harness::session::SessionStore;
 use le_harness::settings::MistralSettings;
 use le_harness::tools::CodingTools;
 use serde::Serialize;
@@ -82,6 +83,12 @@ enum Command {
         /// Declare that the local endpoint does not support tool calling.
         #[arg(long, requires = "local_base_url")]
         local_without_tools: bool,
+        /// Persist the run under this state directory.
+        #[arg(long)]
+        session_dir: Option<PathBuf>,
+        /// Continue from a terminal session without replaying its tool calls.
+        #[arg(long)]
+        resume: Option<String>,
     },
     /// Run a repeatable evaluation manifest.
     Eval {
@@ -96,6 +103,32 @@ enum Command {
         /// Report format.
         #[arg(long, value_enum, default_value = "json")]
         format: ReportFormat,
+    },
+    /// Inspect persisted JSONL session journals.
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SessionCommand {
+    /// List sessions, newest first.
+    List {
+        #[arg(long)]
+        session_dir: Option<PathBuf>,
+    },
+    /// Print a validated session journal as JSON.
+    Inspect {
+        id: String,
+        #[arg(long)]
+        session_dir: Option<PathBuf>,
+    },
+    /// Report whether a session can be continued safely.
+    Resume {
+        id: String,
+        #[arg(long)]
+        session_dir: Option<PathBuf>,
     },
 }
 
@@ -151,6 +184,8 @@ struct RunConfig {
     json: bool,
     mcp_config: Option<PathBuf>,
     local: LocalCliConfig,
+    session_dir: Option<PathBuf>,
+    resume: Option<String>,
 }
 
 struct RoutedModels {
@@ -186,6 +221,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             local_fim_model,
             local_only,
             local_without_tools,
+            session_dir,
+            resume,
         }) => {
             run(RunConfig {
                 prompt,
@@ -202,6 +239,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     only: local_only,
                     tool_calling: !local_without_tools,
                 },
+                session_dir,
+                resume,
             })
             .await?
         }
@@ -211,6 +250,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             repetitions,
             format,
         }) => evaluate(&manifest, mode, repetitions, format)?,
+        Some(Command::Session { command }) => session_command(command)?,
         None => println!("Run `le-harness --help` to get started."),
     }
     Ok(())
@@ -231,6 +271,30 @@ fn evaluate(
     match format {
         ReportFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
         ReportFormat::Markdown => print!("{}", report.markdown()),
+    }
+    Ok(())
+}
+
+fn session_command(command: SessionCommand) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        SessionCommand::List { session_dir } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&session_store(session_dir)?.list()?)?
+            );
+        }
+        SessionCommand::Inspect { id, session_dir } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&session_store(session_dir)?.load(&id)?)?
+            );
+        }
+        SessionCommand::Resume { id, session_dir } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&session_store(session_dir)?.resume_state(&id)?)?
+            );
+        }
     }
     Ok(())
 }
@@ -321,11 +385,26 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         json,
         mcp_config,
         local,
+        session_dir,
+        resume,
     } = config;
     if matches!(mode, CliMode::AutomatedSandbox) && matches!(execution, CliExecution::Native) {
         return Err("automated-sandbox mode requires --execution docker".into());
     }
     let root = root.canonicalize()?;
+    let sessions = session_store(session_dir)?;
+    let original_prompt = prompt;
+    let prompt = if let Some(id) = resume.as_deref() {
+        let snapshot = sessions.load(id)?;
+        if snapshot.header.repository_root.canonicalize()? != root {
+            return Err("resume session belongs to a different repository".into());
+        }
+        sessions
+            .resume_state(id)?
+            .continuation_prompt(&original_prompt)?
+    } else {
+        original_prompt.clone()
+    };
     let before = git_evidence(&root);
     let repository = Repository::open(&root)?;
     let repository_tools = RepositoryToolHandler::new(repository, RepositoryToolLimits::default());
@@ -457,7 +536,9 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let after = git_evidence(&root);
+    let saved = sessions.save(original_prompt, &root, resume, &result)?;
     let output = RunOutput {
+        session_id: saved.header.id,
         status: result.status,
         answer: result.output,
         model_requests: result.model_requests,
@@ -470,12 +551,13 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("{}", output.answer);
         println!(
-            "\nstatus: {} | model requests: {} | tool calls: {}",
+            "\nstatus: {} | model requests: {} | tool calls: {} | session: {}",
             serde_json::to_value(&output.status)?["state"]
                 .as_str()
                 .unwrap_or("unknown"),
             output.model_requests,
-            output.tool_calls
+            output.tool_calls,
+            output.session_id
         );
         if output.git.before.status != output.git.after.status {
             println!("repository changes:\n{}", output.git.after.status);
@@ -515,12 +597,31 @@ impl Approver for ConsoleApprover {
 
 #[derive(Serialize)]
 struct RunOutput {
+    session_id: String,
     status: le_harness::runtime::AgentStatus,
     answer: String,
     model_requests: u32,
     tool_calls: u32,
     events: Vec<le_harness::event::RuntimeEvent>,
     git: GitTransition,
+}
+
+fn session_store(configured: Option<PathBuf>) -> Result<SessionStore, Box<dyn std::error::Error>> {
+    if let Some(path) = configured {
+        return Ok(SessionStore::new(path));
+    }
+    if let Some(path) = std::env::var_os("LE_HARNESS_STATE_DIR").map(PathBuf::from) {
+        return Ok(SessionStore::new(path.join("sessions")));
+    }
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".local/state"))
+        })
+        .ok_or("cannot determine state directory; set LE_HARNESS_STATE_DIR")?;
+    Ok(SessionStore::new(base.join("le-harness/sessions")))
 }
 
 #[derive(Serialize)]

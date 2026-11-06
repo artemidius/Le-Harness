@@ -49,6 +49,19 @@ le-harness run "Inspect this repository" --local-only \
 
 Add `--local-fim-model <id>` only when the server implements the compatible FIM endpoint. Without `--local-only`, the configured local model is used for the utility route and cloud planner/FIM configuration remains required.
 
+Every run is persisted as a versioned JSONL journal. List and inspect sessions,
+or safely continue a terminal session, without replaying its completed tools:
+
+```text
+le-harness session list
+le-harness session inspect <session-id>
+le-harness run "Now add the regression test" --resume <session-id> --root .
+```
+
+Use `--session-dir` to select an exact journal directory or
+`LE_HARNESS_STATE_DIR` to relocate all state. See the [session journal
+contract](docs/sessions.md) for resume and crash-safety boundaries.
+
 ## Design boundaries
 
 - [Le Rust](https://github.com/artemidius/Le-Rust) owns Mistral API transport and native wire types.
