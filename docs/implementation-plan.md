@@ -21,7 +21,7 @@ Le Harness is delivered through eighteen sequential pull requests. Each PR is re
 | H14 | Session resume and inspection | Complete ([#15](https://github.com/artemidius/Le-Harness/pull/15)) |
 | H15 | TUI | Complete ([#16](https://github.com/artemidius/Le-Harness/pull/16)) |
 | H16 | End-to-end hardening and documentation | Complete ([#17](https://github.com/artemidius/Le-Harness/pull/17)) |
-| H17 | Release candidate | Planned |
+| H17 | Release candidate | Complete ([#18](https://github.com/artemidius/Le-Harness/pull/18)) |
 
 The release checklist links each row to its implementation PR and validation evidence. Authenticated service checks and hardware-dependent probes are recorded separately from deterministic tests.
 
