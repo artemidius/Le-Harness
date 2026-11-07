@@ -61,3 +61,10 @@ the unchanged, manifest-verified release packages. A failed build or signature
 check cannot reach the Pages deployment job, leaving the previous snapshot
 available. A maintainer can provide a published tag to the manual workflow for
 recovery.
+
+The publisher retains the three newest complete releases in each of the
+`preview` and `stable` suites. Drafts and releases without a manifest plus both
+Debian architectures are ineligible. Stable and preview selection is
+independent, so publishing a prerelease cannot replace stable candidates. Every
+retained package is checked against its own release manifest before repository
+metadata is signed.

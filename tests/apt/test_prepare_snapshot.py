@@ -83,6 +83,36 @@ class PrepareSnapshotTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "channel"):
                 snapshot.prepare(released, root / "prepared")
 
+    def test_duplicate_release_is_rejected_before_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            released = root / "released"
+            released.mkdir()
+            self.fixture(released)
+            output = root / "prepared"
+            with self.assertRaisesRegex(ValueError, "duplicate tags"):
+                snapshot.prepare_many([released, released], output)
+            self.assertFalse(output.exists())
+
+    def test_retention_is_enforced_before_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            released = root / "released"
+            released.mkdir()
+            self.fixture(released)
+            second = root / "second"
+            second.mkdir()
+            self.fixture(second)
+            manifest_path = second / "release-manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["tag"] = "v0.1.0-rc.4"
+            manifest["version"] = "0.1.0-rc.4"
+            manifest_path.write_text(json.dumps(manifest))
+            output = root / "prepared"
+            with self.assertRaisesRegex(ValueError, "retention"):
+                snapshot.prepare_many([released, second], output, retention=1)
+            self.assertFalse(output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

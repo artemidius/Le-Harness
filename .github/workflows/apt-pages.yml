@@ -24,45 +24,48 @@ jobs:
     runs-on: ubuntu-24.04
     environment: apt-signing
     outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      suite: ${{ steps.snapshot.outputs.suite }}
+      tags: ${{ steps.snapshot.outputs.tags }}
+      suites: ${{ steps.snapshot.outputs.suites }}
     steps:
       - uses: actions/checkout@v7
       - name: Install repository tooling
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends apt-utils dpkg-dev gnupg
-      - id: release
-        name: Select a published release
+      - id: releases
+        name: Select complete published releases
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_TAG: ${{ github.event.release.tag_name }}
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          tag="${EVENT_TAG:-${REQUESTED_TAG:-}}"
-          if test -z "$tag"; then
-            tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts \
-              --limit 1 --json tagName --jq '.[0].tagName')"
+          required_tag="${EVENT_TAG:-${REQUESTED_TAG:-}}"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          arguments=(--input releases.json --output selected-tags.txt --retention 3)
+          if test -n "$required_tag"; then
+            arguments+=(--required-tag "$required_tag")
           fi
-          test "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          python3 scripts/apt/select_releases.py "${arguments[@]}"
       - name: Download immutable release inputs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir downloaded
-          gh release download "${{ steps.release.outputs.tag }}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern release-manifest.json \
-            --pattern 'le-harness_*.deb' \
-            --dir downloaded
+          while IFS= read -r tag; do
+            mkdir -p "downloaded/$tag"
+            gh release download "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern release-manifest.json \
+              --pattern 'le-harness_*.deb' \
+              --dir "downloaded/$tag"
+          done < selected-tags.txt
       - id: snapshot
-        name: Validate release manifest and package bytes
+        name: Validate retained release manifests and package bytes
         run: |
-          python3 scripts/apt/prepare_snapshot.py \
-            --directory downloaded \
-            --output prepared \
-            --github-output "$GITHUB_OUTPUT"
+          arguments=(--output prepared --retention 3 --github-output "$GITHUB_OUTPUT")
+          while IFS= read -r tag; do
+            arguments+=(--directory "downloaded/$tag")
+          done < selected-tags.txt
+          python3 scripts/apt/prepare_snapshot.py "${arguments[@]}"
       - name: Import protected signing subkey
         env:
           APT_SIGNING_SUBKEY: ${{ secrets.APT_SIGNING_SUBKEY }}
@@ -81,17 +84,22 @@ jobs:
         run: |
           fingerprint="$(cat packaging/apt/SIGNING-KEY-FINGERPRINT)"
           mkdir site
+          suites=()
+          while IFS= read -r suite; do
+            suites+=(--suite "$suite=prepared/$suite")
+          done < <(find prepared -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
           SOURCE_DATE_EPOCH="$(date +%s)" python3 scripts/apt/build_repository.py \
             --output site/apt \
-            --suite "${{ steps.snapshot.outputs.suite }}=prepared/${{ steps.snapshot.outputs.suite }}" \
+            "${suites[@]}" \
             --architectures amd64,arm64 \
             --signing-key "$fingerprint" \
             --passphrase-file "$RUNNER_TEMP/apt-passphrase" \
             --valid-days 30 \
             --max-bytes 200000000
           test "$(cat site/apt/SIGNING-KEY-FINGERPRINT)" = "$fingerprint"
-          gpg --batch --verify \
-            "site/apt/dists/${{ steps.snapshot.outputs.suite }}/InRelease"
+          while IFS= read -r suite; do
+            gpg --batch --verify "site/apt/dists/$suite/InRelease"
+          done < <(find site/apt/dists -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
           cp docs/install/apt.html site/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
