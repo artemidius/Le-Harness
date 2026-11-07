@@ -49,3 +49,15 @@ The generated `repository-manifest.json` records suites, packages, package
 hashes, architectures, metadata validity, signing fingerprint, and snapshot
 size. Publishing and retention are separate operations so a failed candidate
 cannot mutate the last working public snapshot.
+
+The published archive identity has fingerprint
+`520A 6749 CEFE 62FC EEA3 0447 2160 9ACA AA5F 447E`. Its certification-only
+primary key is kept outside CI. The protected `apt-signing` deployment
+environment receives only the expiring signing subkey and its passphrase.
+
+Public snapshots are serialized by the `apt-pages` concurrency group. Metadata
+is valid for 30 days and the scheduled workflow refreshes it every week from
+the unchanged, manifest-verified release packages. A failed build or signature
+check cannot reach the Pages deployment job, leaving the previous snapshot
+available. A maintainer can provide a published tag to the manual workflow for
+recovery.
