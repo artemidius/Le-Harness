@@ -4,6 +4,15 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.3 - 2026-11-13
+
+- Added hidden, session-only Mistral API-key input for interactive cloud
+  commands while preserving fail-fast noninteractive behavior.
+- Added reproducible Debian 12 release artifacts for Linux amd64 and arm64,
+  native packages, and cross-distribution installation tests.
+- Added a signed APT repository pipeline with expiring metadata, by-hash
+  indexes, protected signing, tamper tests, and package-scoped setup guidance.
+
 ## 0.1.0-rc.2 - 2026-11-13
 
 - Updated the macOS ARM release runner to the current hosted image label.
