@@ -17,6 +17,11 @@ TARGETS = {
     "x86_64-pc-windows-msvc": "zip",
 }
 
+DEBIAN_ARCHITECTURES = {
+    "x86_64-unknown-linux-gnu": "amd64",
+    "aarch64-unknown-linux-gnu": "arm64",
+}
+
 
 def digest(path: pathlib.Path) -> str:
     hasher = hashlib.sha256()
@@ -24,6 +29,12 @@ def digest(path: pathlib.Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             hasher.update(block)
     return hasher.hexdigest()
+
+
+def debian_version(version: str, revision: str = "1") -> str:
+    upstream, separator, prerelease = version.partition("-")
+    normalized = f"{upstream}~{prerelease}" if separator else upstream
+    return f"{normalized}-{revision}"
 
 
 def assemble(directory: pathlib.Path, tag: str, commit: str) -> dict[str, object]:
@@ -41,6 +52,7 @@ def assemble(directory: pathlib.Path, tag: str, commit: str) -> dict[str, object
             raise ValueError(f"required artifact is missing: {name}")
         artifacts.append(
             {
+                "kind": "archive",
                 "name": name,
                 "target": target,
                 "size": path.stat().st_size,
@@ -48,9 +60,25 @@ def assemble(directory: pathlib.Path, tag: str, commit: str) -> dict[str, object
             }
         )
 
+    for target, architecture in DEBIAN_ARCHITECTURES.items():
+        name = f"le-harness_{debian_version(version)}_{architecture}.deb"
+        path = directory / name
+        if not path.is_file():
+            raise ValueError(f"required artifact is missing: {name}")
+        artifacts.append(
+            {
+                "kind": "deb",
+                "name": name,
+                "target": target,
+                "architecture": architecture,
+                "size": path.stat().st_size,
+                "sha256": digest(path),
+            }
+        )
+
     unexpected = sorted(
         path.name
-        for path in directory.glob("le-harness-*")
+        for path in directory.glob("le-harness*")
         if path.is_file() and path.name not in {item["name"] for item in artifacts}
     )
     if unexpected:

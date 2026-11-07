@@ -1,0 +1,10 @@
+Le Harness is a transparent coding-agent runtime designed for the Mistral
+ecosystem. It provides native streamed chat and Codestral fill-in-the-middle
+requests, transactional code edits, explicit permission policies, hybrid
+cloud and loopback-local model routing, MCP clients, and inspectable session
+traces.
+.
+The package installs the standalone le-harness executable. Provider
+credentials and model identifiers are supplied at runtime; package
+installation does not request or store them. Docker is optional and is used
+only when the Docker execution backend is selected.

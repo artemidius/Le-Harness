@@ -1,0 +1,72 @@
+.TH LE-HARNESS 1 "November 2026" "le-harness 0.1.0-rc.2" "User Commands"
+.SH NAME
+le-harness \- transparent coding-agent runtime for the Mistral ecosystem
+.SH SYNOPSIS
+.B le-harness
+.RI [ OPTIONS ]
+.I COMMAND
+.RI [ COMMAND-OPTIONS ]
+.SH DESCRIPTION
+Le Harness runs bounded coding-agent sessions with transactional edits,
+explicit permission policies, Mistral chat and fill-in-the-middle requests,
+optional loopback-local models, MCP clients, and inspectable session traces.
+.SH COMMANDS
+.TP
+.B doctor
+Print build and runtime diagnostics. With
+.BR --live ,
+query the configured Mistral endpoint.
+.TP
+.B run
+Run one bounded coding-agent session.
+.TP
+.B eval
+Run a repeatable evaluation manifest.
+.TP
+.B session
+List, inspect, or validate resumability of persisted session journals.
+.TP
+.B tui
+Explore a persisted execution trace in an interactive terminal UI.
+.SH OPTIONS
+.TP
+.B --no-input
+Disable credential prompts and interactive action approvals.
+.TP
+.B -h, --help
+Print command help.
+.TP
+.B -V, --version
+Print the installed version.
+.SH ENVIRONMENT
+.TP
+.B MISTRAL_API_KEY
+Mistral API credential. If absent during an interactive cloud command, Le
+Harness requests hidden, process-only input.
+.TP
+.B LE_HARNESS_CHAT_MODEL
+Exact cloud planner/chat model identifier.
+.TP
+.B LE_HARNESS_FIM_MODEL
+Exact cloud fill-in-the-middle model identifier.
+.TP
+.B LE_HARNESS_UTILITY_MODEL
+Optional utility model identifier; defaults to the chat model.
+.TP
+.B LE_HARNESS_STATE_DIR
+Parent directory for persisted session journals.
+.SH FILES
+.TP
+.I $XDG_STATE_HOME/le-harness/sessions
+Default session journal directory when
+.B LE_HARNESS_STATE_DIR
+is not set.
+.SH SECURITY
+Native command execution is bounded but is not a security sandbox. Use the
+Docker execution backend for automated execution and review its daemon and
+image trust boundary separately.
+.SH SEE ALSO
+Project documentation is installed under
+.IR /usr/share/doc/le-harness/ .
+The upstream project is available at
+.IR https://github.com/artemidius/Le-Harness .

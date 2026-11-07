@@ -1,0 +1,5 @@
+le-harness (0.1.0~rc.2-1) unstable; urgency=medium
+
+  * Package the v0.1.0-rc.2 preview release.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Fri, 13 Nov 2026 00:00:00 +0000

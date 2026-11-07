@@ -39,3 +39,33 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --locked --all-targets --all-features
 
+  debian-package:
+    runs-on: ubuntu-24.04
+    container: rust:1.88-bookworm
+    steps:
+      - name: Install package tooling
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends dpkg-dev lintian pkg-config python3
+          rm -rf /var/lib/apt/lists/*
+      - uses: actions/checkout@v7
+      - name: Build release binary and pinned packager
+        run: |
+          cargo build --locked --release --target x86_64-unknown-linux-gnu
+          cargo install cargo-deb --version 3.8.0 --locked
+      - name: Build, lint, and exercise package lifecycle
+        shell: bash
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          export VERSION="$version"
+          deb_version="$(python3 -c 'import os; from scripts.release.assemble_manifest import debian_version; print(debian_version(os.environ["VERSION"]))')"
+          mkdir -p target/package-ci
+          cargo deb --no-build --no-strip --target x86_64-unknown-linux-gnu \
+            --deb-revision 1 \
+            --output "target/package-ci/le-harness_${deb_version}_amd64.deb"
+          cargo deb --no-build --no-strip --target x86_64-unknown-linux-gnu \
+            --deb-revision 0 \
+            --output target/package-ci/upgrade-fixture-amd64.deb
+          lintian --fail-on error "target/package-ci/le-harness_${deb_version}_amd64.deb"
+          bash scripts/release/test_deb_install.sh target/package-ci "$version" amd64
+
