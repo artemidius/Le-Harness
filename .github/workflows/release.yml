@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: |
           main_version="$(python3 -c 'from scripts.release.assemble_manifest import debian_version; print(debian_version("${{ needs.validate.outputs.version }}"))')"
-          main_deb="out/le-harness_${main_version}_${{ matrix.debian_arch }}.deb"
+          main_deb="out/$(python3 -c 'from scripts.release.assemble_manifest import debian_asset_name; print(debian_asset_name("${{ needs.validate.outputs.version }}", "${{ matrix.debian_arch }}"))')"
           fixture_deb="out/upgrade-fixture-${{ matrix.debian_arch }}.deb"
           cargo deb --no-build --no-strip --target "${{ matrix.target }}" \
             --deb-revision 1 --output "$main_deb"

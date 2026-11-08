@@ -1,4 +1,4 @@
-# Release checklist: v0.1.0-rc.3
+# Release checklist: v0.1.0-rc.4
 
 ## Deterministic gates
 
@@ -10,6 +10,7 @@
 - [x] Cross-platform tagged-release workflow with manifest and SHA-256 checksums.
 - [x] Debian package lifecycle tests on Debian 12/13 and Ubuntu 24.04/26.04.
 - [x] Signed APT metadata, package hash, and tamper-rejection tests.
+- [x] Release asset names round-trip through GitHub without normalization.
 - [x] Hidden credential PTY and noninteractive fail-fast tests.
 - [x] MIT license, security policy, contribution guide, changelog, and release notes.
 

@@ -37,6 +37,14 @@ def debian_version(version: str, revision: str = "1") -> str:
     return f"{normalized}-{revision}"
 
 
+def debian_asset_name(version: str, architecture: str) -> str:
+    """Return a GitHub-safe filename; the package keeps its Debian version inside."""
+    safe = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-"
+    if any(character not in safe for character in version):
+        raise ValueError("version contains characters that are unsafe in release asset names")
+    return f"le-harness_{version}-1_{architecture}.deb"
+
+
 def assemble(directory: pathlib.Path, tag: str, commit: str) -> dict[str, object]:
     version = tag.removeprefix("v")
     if not tag.startswith("v") or not version:
@@ -61,7 +69,7 @@ def assemble(directory: pathlib.Path, tag: str, commit: str) -> dict[str, object
         )
 
     for target, architecture in DEBIAN_ARCHITECTURES.items():
-        name = f"le-harness_{debian_version(version)}_{architecture}.deb"
+        name = debian_asset_name(version, architecture)
         path = directory / name
         if not path.is_file():
             raise ValueError(f"required artifact is missing: {name}")
