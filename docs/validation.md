@@ -11,6 +11,9 @@
 | MCP | stdio discovery/call fixture and effect rejection | selected third-party server |
 | Local inference | loopback discovery, stream, and FIM protocol fixture | Ollama/vLLM model behavior |
 | Credential input | Unix PTY echo/cancel/restore test, loopback Authorization assertion, noninteractive fail-fast tests | Windows console acceptance check |
+| Debian package | Native amd64/arm64 build, metadata/Lintian, install/upgrade/remove/purge on Debian 12/13 and Ubuntu 24.04/26.04 | none for advertised targets |
+| APT repository | disposable-key install plus altered/unsigned metadata and package-hash rejection | public HTTPS install after release publication |
+| Homebrew | formula style/audit/install/test/uninstall on advertised runners | public tap install after release publication |
 | Sessions/TUI | journal tamper/resume and test-backend render tests | interactive terminal check |
 
 The CI quality job runs formatting, strict Clippy, documentation, and all tests
