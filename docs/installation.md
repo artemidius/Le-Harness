@@ -8,10 +8,15 @@ installs use prebuilt release binaries and do not require a Rust toolchain.
 The project tap supports macOS on Apple Silicon and Linux on x86_64 or ARM64:
 
 ```sh
+brew tap artemidius/tap
+brew trust --formula artemidius/tap/le-harness
 brew install artemidius/tap/le-harness
 le-harness --version
 le-harness --no-input doctor
 ```
+
+Current Homebrew releases require explicit trust for third-party formulae. The
+formula-scoped command trusts only Le Harness rather than the entire tap.
 
 Upgrade or uninstall it with:
 
