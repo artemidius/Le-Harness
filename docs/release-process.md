@@ -47,6 +47,14 @@ or completing an idempotent staged release, not for building an untagged branch.
 Stable versions omit the prerelease flag; versions containing a SemVer
 prerelease suffix are marked as preview releases.
 
+Publishing a release also runs the Homebrew update workflow. It downloads the
+three advertised Homebrew archives and `release-manifest.json`, verifies every
+size and SHA-256 digest, and deterministically renders the tap formula. A
+repository-scoped deploy key can push only to `artemidius/homebrew-tap`; it
+creates an `automation/le-harness-v<version>` branch for the tap's own CI and
+pull-request workflow. Duplicate invocations are no-ops, and version ordering
+prevents an older or preview release from replacing a newer stable formula.
+
 ## Local validation
 
 ```text

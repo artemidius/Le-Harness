@@ -1,0 +1,82 @@
+name: Update Homebrew formula
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to process
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Download the published release inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          metadata="$(gh release view "$RELEASE_TAG" --json isDraft,tagName --jq '[.tagName, .isDraft] | @tsv')"
+          test "$metadata" = "$RELEASE_TAG"$'\t'"false"
+          mkdir release
+          gh release download "$RELEASE_TAG" --dir release \
+            --pattern release-manifest.json \
+            --pattern "le-harness-$RELEASE_TAG-aarch64-apple-darwin.tar.gz" \
+            --pattern "le-harness-$RELEASE_TAG-aarch64-unknown-linux-gnu.tar.gz" \
+            --pattern "le-harness-$RELEASE_TAG-x86_64-unknown-linux-gnu.tar.gz"
+      - name: Configure repository-scoped tap access
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          test -n "$TAP_DEPLOY_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$TAP_DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          git clone git@github.com:artemidius/homebrew-tap.git tap
+      - name: Verify assets and render the formula
+        run: |
+          python3 scripts/release/render_homebrew_formula.py \
+            --manifest release/release-manifest.json \
+            --assets-directory release \
+            --current-formula tap/Formula/le-harness.rb \
+            --output generated-le-harness.rb
+      - name: Push an idempotent automation branch
+        working-directory: tap
+        shell: bash
+        run: |
+          branch="automation/le-harness-$RELEASE_TAG"
+          previous="$(git ls-remote --heads origin "refs/heads/$branch" | cut -f1)"
+          git checkout -B "$branch" origin/main
+          cp ../generated-le-harness.rb Formula/le-harness.rb
+          if git diff --quiet -- Formula/le-harness.rb; then
+            echo "The tap already contains $RELEASE_TAG."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/le-harness.rb
+          git commit -m "chore: update Le Harness to $RELEASE_TAG"
+          if [[ -n "$previous" ]]; then
+            git push --force-with-lease="refs/heads/$branch:$previous" origin "$branch"
+          else
+            git push origin "$branch"
+          fi
