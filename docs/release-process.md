@@ -54,6 +54,15 @@ repository-scoped deploy key can push only to `artemidius/homebrew-tap`; it
 creates an `automation/le-harness-v<version>` branch for the tap's own CI and
 pull-request workflow. Duplicate invocations are no-ops, and version ordering
 prevents an older or preview release from replacing a newer stable formula.
+The tap workflow refuses to open a generated PR if that branch changes any
+path except `Formula/le-harness.rb`.
+
+The deploy key is named `Le Harness release automation` in the tap and its
+private half is stored only as the `HOMEBREW_TAP_DEPLOY_KEY` Actions secret in
+Le Harness plus operator-controlled credential storage. To rotate it, add a
+replacement tap deploy key, replace the secret, run this workflow manually for
+the current published tag, and remove the old key only after the no-op run
+succeeds.
 
 ## Local validation
 
