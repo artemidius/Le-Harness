@@ -74,8 +74,12 @@ guide](docs/install/apt.md) for repository maintenance and cleanup.
 ## Provider configuration
 
 Le Harness uses the tagged Le Rust SDK for native Mistral model discovery,
-streamed chat, and FIM completions. Model IDs stay explicit because availability
-varies by account:
+streamed chat, and FIM completions. In an interactive terminal, a first cloud
+run asks for a hidden API key, discovers the models available to that account,
+and presents numbered chat and FIM model pickers. These values live only for the
+current process.
+
+For repeatable runs and automation, configure the exact model IDs explicitly:
 
 ```text
 export LE_HARNESS_CHAT_MODEL=...
@@ -85,11 +89,11 @@ export LE_HARNESS_UTILITY_MODEL=...
 le-harness doctor --live
 ```
 
-When `MISTRAL_API_KEY` is not set, an interactive cloud command asks once for
-hidden input and keeps the key only for that process. Automation should export
-the variable and pass `--no-input`; JSON and recognized CI contexts never wait
-for a prompt. `doctor` reports whether an environment credential is present but
-never prints its value.
+Environment values take precedence over the dialog, so a missing key or either
+missing model ID prompts only for that value. Automation should export the key
+and model variables and pass `--no-input`; JSON and recognized CI contexts never
+wait for a prompt. `doctor` reports whether an environment credential is
+present but never prints its value.
 
 ## Run a session
 

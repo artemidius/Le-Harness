@@ -13,7 +13,7 @@ use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, 
 use le_harness::fim::FimEditEngine;
 use le_harness::local::{LocalModelConfig, LocalOpenAiAdapter};
 use le_harness::mcp::{McpConfig, McpManager};
-use le_harness::model::{MistralAdapter, ModelAdapter, coding_tools};
+use le_harness::model::{MistralAdapter, MistralModelInfo, ModelAdapter, coding_tools};
 use le_harness::policy::{
     ApprovalBinding, ApprovalRequest, ApprovalStore, Approver, Effect,
     InteractivePolicyToolHandler, PermissionMode, PermissionPolicy, ToolEffects,
@@ -23,8 +23,8 @@ use le_harness::router::{HybridRouter, RouteBudgets, RouteCapabilities};
 use le_harness::runtime::{AgentController, AgentLimits};
 use le_harness::session::SessionStore;
 use le_harness::settings::{
-    ApiKey, CredentialPrompt, InteractionPolicy, MistralModelConfig, MistralSettings,
-    SettingsError, resolve_api_key,
+    ApiKey, CredentialPrompt, InteractionPolicy, MistralModelConfig, MistralSettings, ModelPrompt,
+    ModelSelectionRole, SettingsError, resolve_api_key, resolve_model,
 };
 use le_harness::tools::CodingTools;
 use serde::Serialize;
@@ -506,9 +506,7 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
             ],
         }
     } else {
-        let models = MistralModelConfig::from_env()?;
-        let api_key = resolve_mistral_key(no_input, json)?;
-        let settings = MistralSettings::from_parts(api_key, models);
+        let settings = resolve_mistral_settings(no_input, json).await?;
         let utility_label = local
             .model
             .clone()
@@ -639,7 +637,74 @@ impl CredentialPrompt for TerminalCredentialPrompt {
     }
 }
 
+struct TerminalModelPrompt;
+
+impl ModelPrompt for TerminalModelPrompt {
+    fn prompt_model(
+        &mut self,
+        role: ModelSelectionRole,
+        choices: &[String],
+    ) -> Result<String, SettingsError> {
+        eprintln!("Select a Mistral {role} model for this process:");
+        for (index, model) in choices.iter().enumerate() {
+            eprintln!("  {}) {model}", index + 1);
+        }
+        loop {
+            eprint!("Choice [1-{}]: ", choices.len());
+            io::stderr()
+                .flush()
+                .map_err(|error| SettingsError::ModelPromptFailed(error.to_string()))?;
+            let mut answer = String::new();
+            let read = io::stdin()
+                .read_line(&mut answer)
+                .map_err(|error| match error.kind() {
+                    io::ErrorKind::Interrupted | io::ErrorKind::UnexpectedEof => {
+                        SettingsError::ModelInputCancelled
+                    }
+                    _ => SettingsError::ModelPromptFailed(error.to_string()),
+                })?;
+            if read == 0 {
+                return Err(SettingsError::ModelInputCancelled);
+            }
+            let answer = answer.trim();
+            if let Ok(index) = answer.parse::<usize>()
+                && let Some(model) = index.checked_sub(1).and_then(|index| choices.get(index))
+            {
+                return Ok(model.clone());
+            }
+            if let Some(model) = choices.iter().find(|model| model.as_str() == answer) {
+                return Ok(model.clone());
+            }
+            eprintln!(
+                "Enter a number from 1 to {} or an exact model ID.",
+                choices.len()
+            );
+        }
+    }
+}
+
 fn resolve_mistral_key(no_input: bool, json: bool) -> Result<ApiKey, SettingsError> {
+    resolve_mistral_key_with_policy(credential_interaction_policy(
+        no_input,
+        json,
+        ci_environment(),
+        io::stdin().is_terminal(),
+        io::stderr().is_terminal(),
+    ))
+}
+
+fn resolve_mistral_key_with_policy(policy: InteractionPolicy) -> Result<ApiKey, SettingsError> {
+    resolve_api_key(
+        std::env::var("MISTRAL_API_KEY").ok(),
+        policy,
+        &mut TerminalCredentialPrompt,
+    )
+}
+
+async fn resolve_mistral_settings(
+    no_input: bool,
+    json: bool,
+) -> Result<MistralSettings, Box<dyn std::error::Error>> {
     let policy = credential_interaction_policy(
         no_input,
         json,
@@ -647,11 +712,100 @@ fn resolve_mistral_key(no_input: bool, json: bool) -> Result<ApiKey, SettingsErr
         io::stdin().is_terminal(),
         io::stderr().is_terminal(),
     );
-    resolve_api_key(
-        std::env::var("MISTRAL_API_KEY").ok(),
+    let api_key = resolve_mistral_key_with_policy(policy)?;
+    let chat_environment = nonblank_environment("LE_HARNESS_CHAT_MODEL");
+    let fim_environment = nonblank_environment("LE_HARNESS_FIM_MODEL");
+
+    let (chat_choices, fim_choices) = if chat_environment.is_none() || fim_environment.is_none() {
+        if policy == InteractionPolicy::Deny {
+            (Vec::new(), Vec::new())
+        } else {
+            let discovery = MistralAdapter::from_credentials(
+                &api_key,
+                "discovery-only",
+                "discovery-only",
+                configured_mistral_base_url().as_deref(),
+            )?;
+            model_choices(discovery.discover_models().await?)
+        }
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    let mut prompt = TerminalModelPrompt;
+    let chat_model = resolve_model(
+        chat_environment,
+        "LE_HARNESS_CHAT_MODEL",
+        ModelSelectionRole::Chat,
         policy,
-        &mut TerminalCredentialPrompt,
-    )
+        &chat_choices,
+        &mut prompt,
+    )?;
+    let fim_model = resolve_model(
+        fim_environment,
+        "LE_HARNESS_FIM_MODEL",
+        ModelSelectionRole::Fim,
+        policy,
+        &fim_choices,
+        &mut prompt,
+    )?;
+    let models = MistralModelConfig::from_values(
+        chat_model,
+        fim_model,
+        nonblank_environment("LE_HARNESS_UTILITY_MODEL"),
+    )?;
+    Ok(MistralSettings::from_parts(api_key, models))
+}
+
+fn nonblank_environment(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn model_choices(models: Vec<MistralModelInfo>) -> (Vec<String>, Vec<String>) {
+    let usable: Vec<_> = models
+        .into_iter()
+        .filter(|model| {
+            model.archived != Some(true)
+                && !model.id.trim().is_empty()
+                && !model.id.chars().any(char::is_control)
+        })
+        .collect();
+
+    let mut chat = model_ids(&usable, |model| {
+        model.chat == Some(true) && model.function_calling != Some(false)
+    });
+    if chat.is_empty() {
+        chat = model_ids(&usable, |model| {
+            model.chat != Some(false) && model.function_calling != Some(false)
+        });
+    }
+
+    let mut fim = model_ids(&usable, |model| model.fim == Some(true));
+    if fim.is_empty() {
+        fim = model_ids(&usable, |model| {
+            model.fim != Some(false) && model.id.to_ascii_lowercase().contains("codestral")
+        });
+    }
+    if fim.is_empty() {
+        fim = model_ids(&usable, |model| model.fim != Some(false));
+    }
+    (chat, fim)
+}
+
+fn model_ids(
+    models: &[MistralModelInfo],
+    predicate: impl Fn(&MistralModelInfo) -> bool,
+) -> Vec<String> {
+    let mut ids: Vec<_> = models
+        .iter()
+        .filter(|model| predicate(model))
+        .map(|model| model.id.clone())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 fn credential_interaction_policy(
@@ -834,5 +988,60 @@ mod tests {
             cli.command,
             Some(Command::Doctor { live: true, .. })
         ));
+    }
+
+    #[test]
+    fn model_picker_uses_capabilities_and_excludes_archived_models() {
+        let models = vec![
+            MistralModelInfo {
+                id: "chat-b".into(),
+                chat: Some(true),
+                fim: Some(false),
+                function_calling: Some(true),
+                archived: None,
+            },
+            MistralModelInfo {
+                id: "fim-a".into(),
+                chat: Some(false),
+                fim: Some(true),
+                function_calling: Some(false),
+                archived: None,
+            },
+            MistralModelInfo {
+                id: "archived-chat".into(),
+                chat: Some(true),
+                fim: Some(false),
+                function_calling: Some(true),
+                archived: Some(true),
+            },
+        ];
+
+        let (chat, fim) = model_choices(models);
+        assert_eq!(chat, vec!["chat-b"]);
+        assert_eq!(fim, vec!["fim-a"]);
+    }
+
+    #[test]
+    fn model_picker_supports_providers_without_capability_metadata() {
+        let models = vec![
+            MistralModelInfo {
+                id: "legacy-b".into(),
+                chat: None,
+                fim: None,
+                function_calling: None,
+                archived: None,
+            },
+            MistralModelInfo {
+                id: "legacy-a".into(),
+                chat: None,
+                fim: None,
+                function_calling: None,
+                archived: None,
+            },
+        ];
+
+        let (chat, fim) = model_choices(models);
+        assert_eq!(chat, vec!["legacy-a", "legacy-b"]);
+        assert_eq!(fim, vec!["legacy-a", "legacy-b"]);
     }
 }
