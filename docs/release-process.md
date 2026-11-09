@@ -67,7 +67,7 @@ succeeds.
 ## Local validation
 
 ```text
-python3 scripts/release/validate_release.py --tag v0.1.0-rc.4
+python3 scripts/release/validate_release.py --tag v0.1.0-rc.5
 python3 -m unittest discover -s tests/release -p 'test_*.py'
 ```
 

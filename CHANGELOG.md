@@ -4,6 +4,15 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.5 - 2026-11-14
+
+- Added interactive, account-backed chat and FIM model selection when cloud
+  model environment variables are absent.
+- Reordered first-run cloud setup so the hidden API-key dialog precedes model
+  discovery and selection.
+- Added capability-aware filtering, PTY coverage for the complete setup flow,
+  and deterministic Python fixture startup across macOS Python installations.
+
 ## 0.1.0-rc.4 - 2026-11-14
 
 - Added hidden, session-only Mistral API-key input for interactive cloud
