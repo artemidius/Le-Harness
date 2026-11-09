@@ -17,6 +17,8 @@ Le Harness processes untrusted repository content, model output, command output,
 - approvals bind to exact arguments;
 - execution has time, output, and resource limits;
 - secrets are excluded from child environments by default;
+- prompted Mistral keys are kept in the native OS credential store, never in
+  repository configuration or session journals;
 - event and diagnostic output excludes content by default;
 - stale file snapshots prevent blind overwrites.
 
@@ -45,6 +47,9 @@ security still depends on the local Docker daemon and selected image.
   outside the process-level guarantees of this crate.
 - Terminal journals contain prompts, answers, and metadata and should be
   protected as developer data.
+- Native credential storage inherits platform behavior: Linux persistence
+  requires an available Secret Service, while macOS and Windows may require an
+  OS-mediated credential-store unlock.
 - The runtime does not claim protection against a hostile operating system or
   mid-request crash recovery.
 

@@ -269,7 +269,9 @@ where
                     "tool.completed",
                     serde_json::json!({"id":&tool.id,"is_error":result.is_error}),
                 );
-                state.messages.push(Message::tool(tool.id, result.content));
+                state
+                    .messages
+                    .push(Message::named_tool(tool.id, tool.name, result.content));
             }
         }
     }

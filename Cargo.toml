@@ -40,7 +40,8 @@ futures-core = "0.3"
 futures-util = "0.3"
 hex = "0.4"
 ignore = "0.4"
-le-rust = { git = "https://github.com/artemidius/Le-Rust", tag = "v0.1.1" }
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "crypto-rust", "linux-native-sync-persistent", "vendored", "windows-native"] }
+le-rust = { git = "https://github.com/artemidius/Le-Rust", tag = "v0.1.2" }
 rmcp = { version = "3.10", default-features = false, features = ["client", "transport-child-process"] }
 ratatui = "0.29"
 rpassword = "=7.5.5"

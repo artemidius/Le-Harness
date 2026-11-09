@@ -7,6 +7,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use clap::{Parser, Subcommand, ValueEnum};
+use le_harness::credentials::{
+    CredentialStore, EphemeralCredentialStore, OsCredentialStore, resolve_persisted_api_key,
+};
 use le_harness::edit::WorkspaceEditor;
 use le_harness::eval::{EvalManifest, EvalMode};
 use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, NativeExecution};
@@ -35,6 +38,9 @@ struct Cli {
     /// Disable all interactive prompts.
     #[arg(long, global = true)]
     no_input: bool,
+    /// Do not read or save API keys in the operating system credential store.
+    #[arg(long, global = true)]
+    no_credential_store: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -52,6 +58,11 @@ enum Command {
         /// Exact local model identifier to verify.
         #[arg(long, requires = "local_base_url")]
         local_model: Option<String>,
+    },
+    /// Manage the Mistral API key in the operating system credential store.
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
     },
     /// Run one bounded coding-agent session.
     Run {
@@ -127,6 +138,16 @@ enum Command {
 }
 
 #[derive(Debug, Subcommand)]
+enum AuthCommand {
+    /// Prompt for and save a Mistral API key securely.
+    Login,
+    /// Remove the saved Mistral API key.
+    Logout,
+    /// Report credential availability without exposing the key.
+    Status,
+}
+
+#[derive(Debug, Subcommand)]
 enum SessionCommand {
     /// List sessions, newest first.
     List {
@@ -198,6 +219,7 @@ struct RunConfig {
     image: String,
     json: bool,
     no_input: bool,
+    no_credential_store: bool,
     mcp_config: Option<PathBuf>,
     local: LocalCliConfig,
     session_dir: Option<PathBuf>,
@@ -230,12 +252,28 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
     let no_input = cli.no_input;
+    let no_credential_store = cli.no_credential_store;
     match cli.command {
         Some(Command::Doctor {
             live,
             local_base_url,
             local_model,
-        }) => doctor(live, local_base_url, local_model, no_input).await?,
+        }) => {
+            doctor(
+                live,
+                local_base_url,
+                local_model,
+                no_input,
+                no_credential_store,
+            )
+            .await?
+        }
+        Some(Command::Auth { command }) => {
+            if no_credential_store {
+                return Err("auth commands require the OS credential store".into());
+            }
+            auth_command(command, no_input)?
+        }
         Some(Command::Run {
             prompt,
             root,
@@ -260,6 +298,7 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
                 image,
                 json,
                 no_input,
+                no_credential_store,
                 mcp_config,
                 local: LocalCliConfig {
                     base_url: local_base_url,
@@ -340,11 +379,12 @@ async fn doctor(
     local_base_url: Option<String>,
     local_model: Option<String>,
     no_input: bool,
+    no_credential_store: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let diagnostic = MistralSettings::diagnostic();
     println!("Le Harness {}", env!("CARGO_PKG_VERSION"));
     println!(
-        "MISTRAL_API_KEY: {}",
+        "MISTRAL_API_KEY environment override: {}",
         if diagnostic.api_key { "set" } else { "missing" }
     );
     println!(
@@ -373,7 +413,7 @@ async fn doctor(
         _ => println!("Docker isolation: unavailable (native execution is not a sandbox)"),
     }
     if live {
-        let api_key = resolve_mistral_key(no_input, false)?;
+        let api_key = resolve_mistral_key(no_input, false, no_credential_store)?;
         let adapter = MistralAdapter::from_credentials(
             &api_key,
             "discovery-only",
@@ -441,6 +481,7 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         image,
         json,
         no_input,
+        no_credential_store,
         mcp_config,
         local,
         session_dir,
@@ -506,7 +547,7 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
             ],
         }
     } else {
-        let settings = resolve_mistral_settings(no_input, json).await?;
+        let settings = resolve_mistral_settings(no_input, json, no_credential_store).await?;
         let utility_label = local
             .model
             .clone()
@@ -603,6 +644,10 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         events: result.events,
         git: GitTransition { before, after },
     };
+    let failure = match &output.status {
+        le_harness::runtime::AgentStatus::Failed { message } => Some(message.clone()),
+        _ => None,
+    };
     if json {
         println!("{}", serde_json::to_string(&output)?);
     } else {
@@ -620,6 +665,9 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
             println!("repository changes:\n{}", output.git.after.status);
         }
     }
+    if let Some(message) = failure {
+        return Err(format!("agent run failed: {message}").into());
+    }
     Ok(())
 }
 
@@ -627,7 +675,7 @@ struct TerminalCredentialPrompt;
 
 impl CredentialPrompt for TerminalCredentialPrompt {
     fn prompt_api_key(&mut self) -> Result<String, SettingsError> {
-        rpassword::prompt_password("Mistral API key (hidden; used for this process only): ")
+        rpassword::prompt_password("Mistral API key (hidden; saved in OS credential store): ")
             .map_err(|error| match error.kind() {
                 io::ErrorKind::Interrupted | io::ErrorKind::UnexpectedEof => {
                     SettingsError::InputCancelled
@@ -683,27 +731,95 @@ impl ModelPrompt for TerminalModelPrompt {
     }
 }
 
-fn resolve_mistral_key(no_input: bool, json: bool) -> Result<ApiKey, SettingsError> {
-    resolve_mistral_key_with_policy(credential_interaction_policy(
-        no_input,
-        json,
-        ci_environment(),
-        io::stdin().is_terminal(),
-        io::stderr().is_terminal(),
-    ))
+fn resolve_mistral_key(
+    no_input: bool,
+    json: bool,
+    no_credential_store: bool,
+) -> Result<ApiKey, SettingsError> {
+    resolve_mistral_key_with_policy(
+        credential_interaction_policy(
+            no_input,
+            json,
+            ci_environment(),
+            io::stdin().is_terminal(),
+            io::stderr().is_terminal(),
+        ),
+        no_credential_store,
+    )
 }
 
-fn resolve_mistral_key_with_policy(policy: InteractionPolicy) -> Result<ApiKey, SettingsError> {
-    resolve_api_key(
+fn resolve_mistral_key_with_policy(
+    policy: InteractionPolicy,
+    no_credential_store: bool,
+) -> Result<ApiKey, SettingsError> {
+    let persistent = OsCredentialStore;
+    let ephemeral = EphemeralCredentialStore;
+    let store: &dyn CredentialStore = if no_credential_store {
+        &ephemeral
+    } else {
+        &persistent
+    };
+    let resolved = resolve_persisted_api_key(
         std::env::var("MISTRAL_API_KEY").ok(),
         policy,
         &mut TerminalCredentialPrompt,
-    )
+        store,
+    )?;
+    if let Some(warning) = resolved.store_warning {
+        eprintln!("Warning: {warning}");
+    }
+    Ok(resolved.api_key)
+}
+
+fn auth_command(command: AuthCommand, no_input: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let store = OsCredentialStore;
+    match command {
+        AuthCommand::Login => {
+            let policy = credential_interaction_policy(
+                no_input,
+                false,
+                ci_environment(),
+                io::stdin().is_terminal(),
+                io::stderr().is_terminal(),
+            );
+            let key = resolve_api_key(None, policy, &mut TerminalCredentialPrompt)?;
+            store
+                .save(key.expose())
+                .map_err(|error| format!("could not save key in OS credential store: {error}"))?;
+            println!("Mistral API key saved in the OS credential store.");
+        }
+        AuthCommand::Logout => {
+            if store
+                .delete()
+                .map_err(|error| format!("could not access OS credential store: {error}"))?
+            {
+                println!("Saved Mistral API key removed.");
+            } else {
+                println!("No saved Mistral API key was present.");
+            }
+        }
+        AuthCommand::Status => {
+            let status = match store.load() {
+                Ok(Some(secret)) if ApiKey::new(secret.clone()).is_ok() => "stored",
+                Ok(Some(_)) => "invalid",
+                Ok(None) => "missing",
+                Err(error) => {
+                    return Err(format!("could not access OS credential store: {error}").into());
+                }
+            };
+            println!("Mistral API key: {status}");
+            if std::env::var("MISTRAL_API_KEY").is_ok_and(|value| !value.trim().is_empty()) {
+                println!("MISTRAL_API_KEY environment override: set");
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn resolve_mistral_settings(
     no_input: bool,
     json: bool,
+    no_credential_store: bool,
 ) -> Result<MistralSettings, Box<dyn std::error::Error>> {
     let policy = credential_interaction_policy(
         no_input,
@@ -712,7 +828,7 @@ async fn resolve_mistral_settings(
         io::stdin().is_terminal(),
         io::stderr().is_terminal(),
     );
-    let api_key = resolve_mistral_key_with_policy(policy)?;
+    let api_key = resolve_mistral_key_with_policy(policy, no_credential_store)?;
     let chat_environment = nonblank_environment("LE_HARNESS_CHAT_MODEL");
     let fim_environment = nonblank_environment("LE_HARNESS_FIM_MODEL");
 

@@ -76,8 +76,17 @@ guide](docs/install/apt.md) for repository maintenance and cleanup.
 Le Harness uses the tagged Le Rust SDK for native Mistral model discovery,
 streamed chat, and FIM completions. In an interactive terminal, a first cloud
 run asks for a hidden API key, discovers the models available to that account,
-and presents numbered chat and FIM model pickers. These values live only for the
-current process.
+and presents numbered chat and FIM model pickers. The prompted key is saved in
+the operating system credential store and reused on later runs; selected models
+remain scoped to the current process unless configured through the environment.
+
+Manage the saved key without putting it in a command or shell history:
+
+```text
+le-harness auth login
+le-harness auth status
+le-harness auth logout
+```
 
 For repeatable runs and automation, configure the exact model IDs explicitly:
 
@@ -92,8 +101,10 @@ le-harness doctor --live
 Environment values take precedence over the dialog, so a missing key or either
 missing model ID prompts only for that value. Automation should export the key
 and model variables and pass `--no-input`; JSON and recognized CI contexts never
-wait for a prompt. `doctor` reports whether an environment credential is
-present but never prints its value.
+wait for a prompt. Environment keys are never copied into the credential store.
+Use the global `--no-credential-store` flag for an explicitly ephemeral
+interactive key. `doctor` reports whether an environment override is present,
+and `auth status` reports whether a saved key exists; neither prints its value.
 
 ## Run a session
 

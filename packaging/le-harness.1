@@ -17,6 +17,9 @@ Print build and runtime diagnostics. With
 .BR --live ,
 query the configured Mistral endpoint.
 .TP
+.B auth
+Save, inspect, or remove the Mistral API key in the native OS credential store.
+.TP
 .B run
 Run one bounded coding-agent session.
 .TP
@@ -33,6 +36,9 @@ Explore a persisted execution trace in an interactive terminal UI.
 .B --no-input
 Disable credential prompts and interactive action approvals.
 .TP
+.B --no-credential-store
+Do not read or save API keys in the native OS credential store.
+.TP
 .B -h, --help
 Print command help.
 .TP
@@ -42,7 +48,8 @@ Print the installed version.
 .TP
 .B MISTRAL_API_KEY
 Mistral API credential. If absent during an interactive cloud command, Le
-Harness requests hidden, process-only input.
+Harness reuses a saved credential or requests hidden input and saves it in the
+native OS credential store.
 .TP
 .B LE_HARNESS_CHAT_MODEL
 Exact cloud planner/chat model identifier.
