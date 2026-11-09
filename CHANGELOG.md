@@ -4,6 +4,13 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.7 - 2026-11-14
+
+- Fixed HTTP 422 failures after the first Mistral tool call by omitting absent
+  streamed tool-call indices instead of replaying them as `"index": null`.
+- Upgraded Le Rust to v0.1.3 and added an end-to-end payload regression check
+  for the second request in a tool-calling loop.
+
 ## 0.1.0-rc.6 - 2026-11-14
 
 - Added native OS credential storage with deterministic environment, saved-key,
