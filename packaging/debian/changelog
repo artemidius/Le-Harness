@@ -1,3 +1,9 @@
+le-harness (0.1.0~rc.6-1) unstable; urgency=medium
+
+  * Persist Mistral credentials securely and repair tool-result replay.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Sat, 14 Nov 2026 02:29:32 +0000
+
 le-harness (0.1.0~rc.5-1) unstable; urgency=medium
 
   * Add interactive account-backed chat and FIM model selection.

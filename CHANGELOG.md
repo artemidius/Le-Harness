@@ -4,6 +4,8 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.6 - 2026-11-14
+
 - Added native OS credential storage with deterministic environment, saved-key,
   and hidden-prompt precedence plus `auth login`, `auth status`, and
   `auth logout` management commands.
