@@ -78,7 +78,13 @@ Offline diagnostics require no provider credential:
 le-harness --no-input doctor
 ```
 
-In an interactive terminal, start a cloud run directly:
+In an interactive terminal, start a chat from the repository directory:
+
+```text
+le-harness
+```
+
+Or start with an initial message:
 
 ```sh
 le-harness run "Explain this repository" --root .

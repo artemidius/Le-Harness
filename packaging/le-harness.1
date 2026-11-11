@@ -4,10 +4,13 @@ le-harness \- transparent coding-agent runtime for the Mistral ecosystem
 .SH SYNOPSIS
 .B le-harness
 .RI [ OPTIONS ]
-.I COMMAND
+.I [ COMMAND ]
 .RI [ COMMAND-OPTIONS ]
 .SH DESCRIPTION
-Le Harness runs bounded coding-agent sessions with transactional edits,
+Without a command, Le Harness starts an interactive coding-agent chat in the
+current directory. A chat can also start with
+.BR "run [PROMPT]" .
+Le Harness runs bounded coding-agent turns with transactional edits,
 explicit permission policies, Mistral chat and fill-in-the-middle requests,
 optional loopback-local models, MCP clients, and inspectable session traces.
 .SH COMMANDS
@@ -21,7 +24,9 @@ query the configured Mistral endpoint.
 Save, inspect, or remove the Mistral API key in the native OS credential store.
 .TP
 .B run
-Run one bounded coding-agent session.
+Start a chat. In an interactive terminal, optional PROMPT is the first message;
+enter follow-up messages at the prompt and use /exit to leave. Without an
+interactive terminal, PROMPT is required and the command runs once.
 .TP
 .B eval
 Run a repeatable evaluation manifest.
