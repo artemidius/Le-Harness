@@ -581,13 +581,11 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         local_adapter.as_ref(),
         &local,
     )?));
-    if interactive {
-        if let Some(settings) = cloud_settings.as_ref() {
-            println!(
-                "le> Using {} (FIM: {}). Enter /model to change.",
-                settings.chat_model, settings.fim_model
-            );
-        }
+    if interactive && let Some(settings) = cloud_settings.as_ref() {
+        println!(
+            "le> Using {} (FIM: {}). Enter /model to change.",
+            settings.chat_model, settings.fim_model
+        );
     }
     let fim = Arc::new(FimEditEngine::new(
         model.clone(),
