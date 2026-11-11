@@ -4,6 +4,17 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.8 - 2026-11-14
+
+- Started an interactive repository chat with `le-harness` or an initial
+  `le-harness run "..."` message; the process stays open for follow-up turns.
+- Retained completed conversation history and tool results across turns while
+  writing linked, individually inspectable session journals.
+- Integrated credential, model, and tool approval prompts into the chat flow.
+- Added a repository-inspection instruction, progress indicator, and terminal
+  regression coverage for multi-turn context and clean exit.
+- Preserved one-shot behavior for `--json`, `--no-input`, and piped execution.
+
 ## 0.1.0-rc.7 - 2026-11-14
 
 - Fixed HTTP 422 failures after the first Mistral tool call by omitting absent
