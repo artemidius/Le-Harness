@@ -115,6 +115,7 @@ class RenderHomebrewFormulaTests(unittest.TestCase):
             formula = render_homebrew_formula.render(version, archives)
 
             self.assertIn("releases/download/v1.2.3-rc.4", formula)
+            self.assertIn("MISTRAL_API_KEY environment override: missing", formula)
             for artifact in archives.values():
                 self.assertIn(str(artifact["sha256"]), formula)
 
