@@ -196,6 +196,7 @@ def main() -> None:
         environment.pop(name, None)
     environment["LE_HARNESS_MISTRAL_BASE_URL"] = f"http://127.0.0.1:{port}/v1/"
     workspace = tempfile.TemporaryDirectory()
+    environment["LE_HARNESS_CONFIG_DIR"] = os.path.join(workspace.name, "config")
     sessions = os.path.join(workspace.name, "sessions")
 
     pid, master = pty.fork()
@@ -241,13 +242,19 @@ def main() -> None:
         os.write(master, b"please continue\n")
         read_until_count(master, output, b"fixture answer", 2, deadline)
         read_until_count(master, output, b"you> ", 4, deadline)
+        os.write(master, b"/model\n")
+        read_until_count(master, output, CHAT_PROMPT, 2, deadline)
+        os.write(master, b"1\n")
+        read_until_count(master, output, FIM_PROMPT, 2, deadline)
+        os.write(master, b"2\n")
+        read_until_count(master, output, b"you> ", 7, deadline)
+        os.write(master, b"after model switch\n")
+        read_until_count(master, output, b"fixture answer", 3, deadline)
+        read_until_count(master, output, b"you> ", 8, deadline)
         os.write(master, b"/exit\n")
         status = collect_until_exit(pid, master, output, deadline)
     finally:
-        server.shutdown()
-        server.server_close()
         os.close(master)
-        thread.join(timeout=2)
 
     rendered = bytes(output)
     assert status == 0, f"fixture-backed run failed with {status}: {rendered!r}"
@@ -257,8 +264,8 @@ def main() -> None:
     assert ModelHandler.authorization == f"Bearer {SENTINEL}"
     assert ModelHandler.request_path == "/v1/chat/completions"
     assert ModelHandler.request_body is not None
-    assert ModelHandler.request_body["model"] == "fixture-chat-b"
-    assert len(ModelHandler.request_bodies) == 3
+    assert ModelHandler.request_body["model"] == "fixture-chat-a"
+    assert len(ModelHandler.request_bodies) == 4
     replayed_call = ModelHandler.request_bodies[1]["messages"][-2]["tool_calls"][0]
     assert replayed_call["id"] == "fixture-call"
     assert replayed_call["type"] == "function"
@@ -272,6 +279,12 @@ def main() -> None:
     assert "please continue" in json.dumps(follow_up[-1])
     assert any(message["role"] == "assistant" and "fixture answer" in json.dumps(message) for message in follow_up)
     assert any(message["role"] == "tool" for message in follow_up)
+    assert ModelHandler.request_bodies[3]["model"] == "fixture-chat-a"
+    assert "after model switch" in json.dumps(ModelHandler.request_bodies[3]["messages"][-1])
+    with open(os.path.join(workspace.name, "config", "models.json"), encoding="utf-8") as stored:
+        model_choice = json.load(stored)
+    assert model_choice["chat"] == "fixture-chat-a"
+    assert model_choice["fim"] == "fixture-fim-b"
     session_headers = []
     for root, _, files in os.walk(sessions):
         for name in files:
@@ -279,7 +292,7 @@ def main() -> None:
                 content = stored.read()
                 assert SENTINEL.encode() not in content, name
                 session_headers.append(json.loads(content.splitlines()[0])["data"])
-    assert len(session_headers) == 2, session_headers
+    assert len(session_headers) == 3, session_headers
     ids = {header["id"] for header in session_headers}
     assert any(header["parent_session_id"] in ids for header in session_headers)
 
@@ -307,6 +320,34 @@ def main() -> None:
     assert cancelled_status != 0, cancelled_output
     assert b"API key input was cancelled" in cancelled_output, cancelled_output
 
+    restarted_env = environment.copy()
+    restarted_env["MISTRAL_API_KEY"] = SENTINEL
+    restarted_pid, restarted_master = pty.fork()
+    if restarted_pid == 0:
+        os.execve(
+            sys.argv[1],
+            [sys.argv[1], "--no-credential-store", "run", "new process", "--mode", "inspect", "--root", workspace.name, "--session-dir", sessions],
+            restarted_env,
+        )
+
+    restarted_output = bytearray()
+    restarted_deadline = time.monotonic() + 15
+    try:
+        read_until(restarted_master, restarted_output, b"fixture answer", restarted_deadline)
+        read_until(restarted_master, restarted_output, b"you> ", restarted_deadline)
+        os.write(restarted_master, b"/exit\n")
+        restarted_status = collect_until_exit(
+            restarted_pid, restarted_master, restarted_output, restarted_deadline
+        )
+    finally:
+        os.close(restarted_master)
+
+    assert restarted_status == 0, restarted_output
+    assert CHAT_PROMPT not in restarted_output, restarted_output
+    assert FIM_PROMPT not in restarted_output, restarted_output
+    assert len(ModelHandler.request_bodies) == 5
+    assert ModelHandler.request_bodies[4]["model"] == "fixture-chat-a"
+
     idle_pid, idle_master = pty.fork()
     if idle_pid == 0:
         os.execve(sys.argv[1], [sys.argv[1], "--no-credential-store"], environment)
@@ -322,6 +363,9 @@ def main() -> None:
 
     assert idle_status == 0, idle_output
     assert PROMPT not in idle_output, idle_output
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=2)
     workspace.cleanup()
 
 

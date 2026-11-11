@@ -25,7 +25,8 @@ Save, inspect, or remove the Mistral API key in the native OS credential store.
 .TP
 .B run
 Start a chat. In an interactive terminal, optional PROMPT is the first message;
-enter follow-up messages at the prompt and use /exit to leave. Without an
+enter follow-up messages at the prompt, use /model to change cloud models,
+and use /exit to leave. Without an
 interactive terminal, PROMPT is required and the command runs once.
 .TP
 .B eval
@@ -67,6 +68,9 @@ Optional utility model identifier; defaults to the chat model.
 .TP
 .B LE_HARNESS_STATE_DIR
 Parent directory for persisted session journals.
+.TP
+.B LE_HARNESS_CONFIG_DIR
+Directory for saved chat and FIM model choices.
 .SH FILES
 .TP
 .I $XDG_STATE_HOME/le-harness/sessions

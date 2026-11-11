@@ -16,7 +16,10 @@ use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, 
 use le_harness::fim::FimEditEngine;
 use le_harness::local::{LocalModelConfig, LocalOpenAiAdapter};
 use le_harness::mcp::{McpConfig, McpManager};
-use le_harness::model::{MistralAdapter, MistralModelInfo, ModelAdapter, coding_tools};
+use le_harness::model::{
+    MistralAdapter, MistralModelInfo, ModelAdapter, SwappableModel, coding_tools,
+};
+use le_harness::model_store::{ModelSelection, ModelStore};
 use le_harness::policy::{
     ApprovalBinding, ApprovalRequest, ApprovalStore, Approver, Effect,
     InteractivePolicyToolHandler, PermissionMode, PermissionPolicy, ToolEffects,
@@ -564,53 +567,28 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         (None, None) => None,
         _ => return Err("both --local-base-url and --local-model are required".into()),
     };
-    let routed = if local.only {
-        let adapter = local_adapter
-            .clone()
-            .ok_or("--local-only requires a configured local endpoint")?;
-        let label = local.model.clone().expect("validated local model");
-        RoutedModels {
-            planner: Arc::new(adapter.clone()),
-            fim: Arc::new(adapter.clone()),
-            utility: Arc::new(adapter),
-            labels: [
-                label.clone(),
-                local.fim_model.clone().unwrap_or_else(|| "disabled".into()),
-                label,
-            ],
-        }
+    let model_store = ModelStore::default_path().map(ModelStore::new);
+    let (cloud_settings, prompted_on_start) = if local.only {
+        (None, false)
     } else {
-        let settings = resolve_mistral_settings(no_input, json, no_credential_store).await?;
-        let utility_label = local
-            .model
-            .clone()
-            .unwrap_or_else(|| settings.utility_model.clone());
-        let utility: Arc<dyn ModelAdapter> = match local_adapter {
-            Some(adapter) => Arc::new(adapter),
-            None => Arc::new(mistral_adapter(&settings, &settings.utility_model)?),
-        };
-        RoutedModels {
-            planner: Arc::new(mistral_adapter(&settings, &settings.chat_model)?),
-            fim: Arc::new(mistral_adapter(&settings, &settings.chat_model)?),
-            utility,
-            labels: [settings.chat_model, settings.fim_model, utility_label],
-        }
+        let (settings, prompted) =
+            resolve_mistral_settings(no_input, json, no_credential_store, model_store.as_ref())
+                .await?;
+        (Some(settings), prompted)
     };
-    let model = Arc::new(
-        HybridRouter::new(
-            routed.planner,
-            routed.fim,
-            routed.utility,
-            routed.labels,
-            RouteBudgets::default(),
-        )
-        .capabilities(RouteCapabilities {
-            planner_tools: !local.only || local.tool_calling,
-            fim: !local.only || local.fim_model.is_some(),
-            utility_chat: true,
-            utility_tools: local.base_url.is_none() || local.tool_calling,
-        }),
-    );
+    let model = Arc::new(SwappableModel::new(build_routed_model(
+        cloud_settings.as_ref(),
+        local_adapter.as_ref(),
+        &local,
+    )?));
+    if interactive {
+        if let Some(settings) = cloud_settings.as_ref() {
+            println!(
+                "le> Using {} (FIM: {}). Enter /model to change.",
+                settings.chat_model, settings.fim_model
+            );
+        }
+    }
     let fim = Arc::new(FimEditEngine::new(
         model.clone(),
         editor.clone(),
@@ -653,12 +631,63 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
             enabled: !json && !no_input,
         },
     );
-    let controller =
-        AgentController::new(model, tools, AgentLimits::default()).with_tool_catalog(catalog);
+    let controller = AgentController::new(model.clone(), tools, AgentLimits::default())
+        .with_tool_catalog(catalog);
     let cancellation = controller.cancellation_token();
+    let mut cloud_settings = cloud_settings;
+    if prompted_on_start && next_prompt == "/model" {
+        next_prompt = match read_chat_message()? {
+            Some(prompt) => prompt,
+            None => return Ok(()),
+        };
+    }
     let mut history = Vec::new();
     let mut parent_session = resume;
     loop {
+        if next_prompt == "/model" {
+            if let Some(current) = cloud_settings.as_ref() {
+                match select_mistral_models(&current.api_key).await {
+                    Ok(models) => {
+                        let selected = MistralSettings::from_parts(current.api_key.clone(), models);
+                        match build_routed_model(Some(&selected), local_adapter.as_ref(), &local) {
+                            Ok(route) => {
+                                model.replace(route).await;
+                                println!(
+                                    "le> Using {} (FIM: {}).",
+                                    selected.chat_model, selected.fim_model
+                                );
+                                if let Some(store) = model_store.as_ref() {
+                                    let choice = ModelSelection {
+                                        chat: selected.chat_model.clone(),
+                                        fim: selected.fim_model.clone(),
+                                    };
+                                    if let Err(error) = store.save(&choice) {
+                                        eprintln!("le> Could not save model choice: {error}");
+                                    }
+                                }
+                                if nonblank_environment("LE_HARNESS_CHAT_MODEL").is_some()
+                                    || nonblank_environment("LE_HARNESS_FIM_MODEL").is_some()
+                                {
+                                    eprintln!(
+                                        "le> Environment model overrides will take precedence next time."
+                                    );
+                                }
+                                cloud_settings = Some(selected);
+                            }
+                            Err(error) => eprintln!("le> Could not switch model: {error}"),
+                        }
+                    }
+                    Err(error) => eprintln!("le> Could not open model picker: {error}"),
+                }
+            } else {
+                eprintln!("le> Local-only model is set by --local-model when starting this chat.");
+            }
+            next_prompt = match read_chat_message()? {
+                Some(prompt) => prompt,
+                None => return Ok(()),
+            };
+            continue;
+        }
         let original_prompt = next_prompt;
         let effective_prompt = if let Some(state) = initial_resume.take() {
             state.continuation_prompt(&original_prompt)?
@@ -746,6 +775,62 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+fn build_routed_model(
+    settings: Option<&MistralSettings>,
+    local_adapter: Option<&LocalOpenAiAdapter>,
+    local: &LocalCliConfig,
+) -> Result<Arc<dyn ModelAdapter>, Box<dyn std::error::Error>> {
+    let routed = if local.only {
+        let adapter = local_adapter.ok_or("--local-only requires a configured local endpoint")?;
+        let label = local.model.clone().expect("validated local model");
+        RoutedModels {
+            planner: Arc::new((*adapter).clone()),
+            fim: Arc::new((*adapter).clone()),
+            utility: Arc::new((*adapter).clone()),
+            labels: [
+                label.clone(),
+                local.fim_model.clone().unwrap_or_else(|| "disabled".into()),
+                label,
+            ],
+        }
+    } else {
+        let settings = settings.ok_or("cloud settings are missing")?;
+        let utility_label = local
+            .model
+            .clone()
+            .unwrap_or_else(|| settings.utility_model.clone());
+        let utility: Arc<dyn ModelAdapter> = match local_adapter {
+            Some(adapter) => Arc::new((*adapter).clone()),
+            None => Arc::new(mistral_adapter(settings, &settings.utility_model)?),
+        };
+        RoutedModels {
+            planner: Arc::new(mistral_adapter(settings, &settings.chat_model)?),
+            fim: Arc::new(mistral_adapter(settings, &settings.chat_model)?),
+            utility,
+            labels: [
+                settings.chat_model.clone(),
+                settings.fim_model.clone(),
+                utility_label,
+            ],
+        }
+    };
+    Ok(Arc::new(
+        HybridRouter::new(
+            routed.planner,
+            routed.fim,
+            routed.utility,
+            routed.labels,
+            RouteBudgets::default(),
+        )
+        .capabilities(RouteCapabilities {
+            planner_tools: !local.only || local.tool_calling,
+            fim: !local.only || local.fim_model.is_some(),
+            utility_chat: true,
+            utility_tools: local.base_url.is_none() || local.tool_calling,
+        }),
+    ))
+}
+
 fn read_chat_message() -> io::Result<Option<String>> {
     loop {
         print!("\nyou> ");
@@ -760,7 +845,7 @@ fn read_chat_message() -> io::Result<Option<String>> {
             "" => continue,
             "/exit" | "/quit" => return Ok(None),
             "/help" => println!(
-                "Enter a task or follow-up. /exit leaves the chat; Ctrl-C cancels the current turn."
+                "Enter a task or follow-up. /model changes cloud models; /exit leaves the chat; Ctrl-C cancels the current turn."
             ),
             _ => return Ok(Some(line.to_owned())),
         }
@@ -916,7 +1001,8 @@ async fn resolve_mistral_settings(
     no_input: bool,
     json: bool,
     no_credential_store: bool,
-) -> Result<MistralSettings, Box<dyn std::error::Error>> {
+    store: Option<&ModelStore>,
+) -> Result<(MistralSettings, bool), Box<dyn std::error::Error>> {
     let policy = credential_interaction_policy(
         no_input,
         json,
@@ -927,8 +1013,22 @@ async fn resolve_mistral_settings(
     let api_key = resolve_mistral_key_with_policy(policy, no_credential_store)?;
     let chat_environment = nonblank_environment("LE_HARNESS_CHAT_MODEL");
     let fim_environment = nonblank_environment("LE_HARNESS_FIM_MODEL");
+    let saved = match store.map(ModelStore::load) {
+        Some(Ok(saved)) => saved,
+        Some(Err(error)) => {
+            eprintln!("le> Could not read saved model choice: {error}");
+            None
+        }
+        None => None,
+    };
+    let chat_choice = chat_environment
+        .clone()
+        .or_else(|| saved.as_ref().map(|value| value.chat.clone()));
+    let fim_choice = fim_environment
+        .clone()
+        .or_else(|| saved.as_ref().map(|value| value.fim.clone()));
 
-    let (chat_choices, fim_choices) = if chat_environment.is_none() || fim_environment.is_none() {
+    let (chat_choices, fim_choices) = if chat_choice.is_none() || fim_choice.is_none() {
         if policy == InteractionPolicy::Deny {
             (Vec::new(), Vec::new())
         } else {
@@ -946,7 +1046,7 @@ async fn resolve_mistral_settings(
 
     let mut prompt = TerminalModelPrompt;
     let chat_model = resolve_model(
-        chat_environment,
+        chat_choice.clone(),
         "LE_HARNESS_CHAT_MODEL",
         ModelSelectionRole::Chat,
         policy,
@@ -954,7 +1054,7 @@ async fn resolve_mistral_settings(
         &mut prompt,
     )?;
     let fim_model = resolve_model(
-        fim_environment,
+        fim_choice.clone(),
         "LE_HARNESS_FIM_MODEL",
         ModelSelectionRole::Fim,
         policy,
@@ -966,7 +1066,51 @@ async fn resolve_mistral_settings(
         fim_model,
         nonblank_environment("LE_HARNESS_UTILITY_MODEL"),
     )?;
-    Ok(MistralSettings::from_parts(api_key, models))
+    let prompted = chat_choice.is_none() || fim_choice.is_none();
+    if prompted && let Some(store) = store {
+        let selection = ModelSelection {
+            chat: models.chat_model.clone(),
+            fim: models.fim_model.clone(),
+        };
+        if let Err(error) = store.save(&selection) {
+            eprintln!("le> Could not save model choice: {error}");
+        }
+    }
+    Ok((MistralSettings::from_parts(api_key, models), prompted))
+}
+
+async fn select_mistral_models(
+    api_key: &ApiKey,
+) -> Result<MistralModelConfig, Box<dyn std::error::Error>> {
+    let discovery = MistralAdapter::from_credentials(
+        api_key,
+        "discovery-only",
+        "discovery-only",
+        configured_mistral_base_url().as_deref(),
+    )?;
+    let (chat_choices, fim_choices) = model_choices(discovery.discover_models().await?);
+    let mut prompt = TerminalModelPrompt;
+    let chat = resolve_model(
+        None,
+        "LE_HARNESS_CHAT_MODEL",
+        ModelSelectionRole::Chat,
+        InteractionPolicy::Allow,
+        &chat_choices,
+        &mut prompt,
+    )?;
+    let fim = resolve_model(
+        None,
+        "LE_HARNESS_FIM_MODEL",
+        ModelSelectionRole::Fim,
+        InteractionPolicy::Allow,
+        &fim_choices,
+        &mut prompt,
+    )?;
+    Ok(MistralModelConfig::from_values(
+        chat,
+        fim,
+        nonblank_environment("LE_HARNESS_UTILITY_MODEL"),
+    )?)
 }
 
 fn nonblank_environment(name: &str) -> Option<String> {

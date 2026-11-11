@@ -93,7 +93,8 @@ le-harness run "Explain this repository" --root .
 If the key or model IDs are absent, Le Harness asks for the hidden key, queries
 the authenticated account, and presents numbered chat and FIM model pickers.
 The prompted key is saved in the operating system credential store and reused;
-model selections stay in process memory. Neither value is written to repository
+chat and FIM model selections are saved in the user config directory and can be
+changed with `/model` during a chat. Neither value is written to repository
 configuration, session journals, logs, child environments, or shell history.
 
 Inspect, replace, or remove the saved key with:
