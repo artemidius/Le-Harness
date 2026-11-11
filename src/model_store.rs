@@ -58,13 +58,12 @@ impl ModelStore {
         {
             return Some(root.join("le-harness/models.json"));
         }
-        if cfg!(windows) {
-            if let Some(root) = std::env::var_os("APPDATA")
+        if cfg!(windows)
+            && let Some(root) = std::env::var_os("APPDATA")
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
-            {
-                return Some(root.join("le-harness/models.json"));
-            }
+        {
+            return Some(root.join("le-harness/models.json"));
         }
         std::env::var_os("HOME")
             .map(PathBuf::from)
