@@ -6,6 +6,12 @@ directory is `$XDG_STATE_HOME/le-harness/sessions`, or
 `LE_HARNESS_STATE_DIR` changes the application state root. The CLI
 `--session-dir` option selects the exact journal directory for one command.
 
+An interactive chat writes one journal per completed, cancelled, or failed
+turn. Each new journal links to the prior turn through `parent_session_id`.
+The active process retains the full completed conversation for follow-up
+requests; journals remain compact execution records rather than a replayable
+transcript. Restarting with `--resume` uses the terminal answer summary below.
+
 Each journal contains exactly one header, an ordered stream of runtime events,
 and one footer. Writes use a temporary file, `fsync`, and an atomic rename, so
 readers see the old complete state or the new complete state. Invalid schema

@@ -342,6 +342,7 @@ mod tests {
             ],
             model_requests: 2,
             tool_calls: 1,
+            messages: Vec::new(),
         }
     }
 
