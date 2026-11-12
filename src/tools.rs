@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::edit::{SpanEdit, WorkspaceEditor};
+use crate::edit::{CreateFileRequest, SpanEdit, WorkspaceEditor};
 use crate::execution::{CommandSpec, ExecutionBackend};
 use crate::fim::{FimEditRequest, FimService};
 use crate::mcp::McpManager;
@@ -48,6 +48,20 @@ impl ToolHandler for CodingTools {
     async fn execute(&self, invocation: &ToolInvocation) -> ToolResult {
         match invocation.name.as_str() {
             "list_files" | "read_file" | "search" => self.repository.execute(invocation).await,
+            "create_file" => {
+                let request: CreateFileRequest = match serde_json::from_str(&invocation.arguments) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        return ToolResult::error(format!("invalid file arguments: {error}"));
+                    }
+                };
+                match self.editor.create(request) {
+                    Ok(created) => ToolResult::success(
+                        serde_json::to_string(&created).expect("created file is serializable"),
+                    ),
+                    Err(error) => ToolResult::error(error.to_string()),
+                }
+            }
             "replace_span" => {
                 let request: SpanEdit = match serde_json::from_str(&invocation.arguments) {
                     Ok(request) => request,
@@ -109,5 +123,58 @@ impl ToolHandler for CodingTools {
             }
             _ => ToolResult::error(format!("unknown tool: {}", invocation.name)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution::{ExecutionLimits, NativeExecution};
+    use crate::policy::{
+        ApprovalStore, Effect, PermissionMode, PermissionPolicy, PolicyToolHandler, ToolEffects,
+    };
+    use crate::repository::{Repository, RepositoryToolLimits};
+
+    #[tokio::test]
+    async fn create_file_is_dispatched_and_subject_to_write_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let tools = CodingTools::new(
+            RepositoryToolHandler::new(
+                Repository::open(root).unwrap(),
+                RepositoryToolLimits::default(),
+            ),
+            WorkspaceEditor::open(root).unwrap(),
+            Arc::new(NativeExecution::new(root, ExecutionLimits::default()).unwrap()),
+        );
+        let invocation = ToolInvocation {
+            id: "create-1".into(),
+            name: "create_file".into(),
+            arguments: serde_json::json!({"path":"sort.py","content":"def sort(items):\n    return sorted(items)\n"}).to_string(),
+        };
+        let guarded = PolicyToolHandler::new(
+            tools,
+            ToolEffects::default().register("create_file", Effect::Write),
+            PermissionPolicy::new(PermissionMode::Inspect, ApprovalStore::default()),
+        );
+        let denied = guarded.execute(&invocation).await;
+        assert!(denied.is_error);
+        assert!(!root.join("sort.py").exists());
+
+        let allowed = CodingTools::new(
+            RepositoryToolHandler::new(
+                Repository::open(root).unwrap(),
+                RepositoryToolLimits::default(),
+            ),
+            WorkspaceEditor::open(root).unwrap(),
+            Arc::new(NativeExecution::new(root, ExecutionLimits::default()).unwrap()),
+        )
+        .execute(&invocation)
+        .await;
+        assert!(!allowed.is_error, "{}", allowed.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join("sort.py")).unwrap(),
+            "def sort(items):\n    return sorted(items)\n"
+        );
     }
 }

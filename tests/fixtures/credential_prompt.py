@@ -265,6 +265,11 @@ def main() -> None:
     assert ModelHandler.request_path == "/v1/chat/completions"
     assert ModelHandler.request_body is not None
     assert ModelHandler.request_body["model"] == "fixture-chat-a"
+    first_request = ModelHandler.request_bodies[0]
+    assert "You can write code directly" in json.dumps(first_request["messages"][0])
+    assert any(
+        tool["function"]["name"] == "create_file" for tool in first_request["tools"]
+    )
     assert len(ModelHandler.request_bodies) == 4
     replayed_call = ModelHandler.request_bodies[1]["messages"][-2]["tool_calls"][0]
     assert replayed_call["id"] == "fixture-call"
