@@ -11,6 +11,7 @@ pub mod fim;
 pub mod local;
 pub mod mcp;
 pub mod model;
+pub mod model_store;
 pub mod policy;
 pub mod repository;
 pub mod router;

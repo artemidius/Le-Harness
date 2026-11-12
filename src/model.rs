@@ -14,7 +14,7 @@ use le_rust::models::ListModelsOptions;
 use le_rust::{Client, RequestOptions};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::settings::{ApiKey, MistralSettings};
 
@@ -104,6 +104,43 @@ pub trait ModelAdapter: Send + Sync {
     async fn list_models(&self) -> Result<Vec<String>, ModelError>;
     async fn stream_chat(&self, turn: ChatTurn) -> Result<ModelEventStream, ModelError>;
     async fn complete_fim(&self, prompt: String, suffix: String) -> Result<String, ModelError>;
+}
+
+/// Keeps the agent controller and FIM tool on the same route after `/model`.
+#[derive(Clone)]
+pub struct SwappableModel {
+    current: Arc<RwLock<Arc<dyn ModelAdapter>>>,
+}
+
+impl SwappableModel {
+    pub fn new(initial: Arc<dyn ModelAdapter>) -> Self {
+        Self {
+            current: Arc::new(RwLock::new(initial)),
+        }
+    }
+
+    pub async fn replace(&self, next: Arc<dyn ModelAdapter>) {
+        *self.current.write().await = next;
+    }
+
+    async fn snapshot(&self) -> Arc<dyn ModelAdapter> {
+        self.current.read().await.clone()
+    }
+}
+
+#[async_trait]
+impl ModelAdapter for SwappableModel {
+    async fn list_models(&self) -> Result<Vec<String>, ModelError> {
+        self.snapshot().await.list_models().await
+    }
+
+    async fn stream_chat(&self, turn: ChatTurn) -> Result<ModelEventStream, ModelError> {
+        self.snapshot().await.stream_chat(turn).await
+    }
+
+    async fn complete_fim(&self, prompt: String, suffix: String) -> Result<String, ModelError> {
+        self.snapshot().await.complete_fim(prompt, suffix).await
+    }
 }
 
 #[async_trait]
@@ -403,5 +440,29 @@ mod tests {
         );
         assert!(response.next().await.is_none());
         assert_eq!(adapter.list_models().await.unwrap(), vec!["chat"]);
+    }
+
+    #[tokio::test]
+    async fn switching_routes_updates_fim_without_rebuilding_the_controller() {
+        let first = ScriptedModelAdapter::default();
+        first.push_fim("old middle").await;
+        let second = ScriptedModelAdapter::default();
+        second.push_fim("new middle").await;
+        let model = SwappableModel::new(Arc::new(first));
+        assert_eq!(
+            model
+                .complete_fim("prefix".into(), "suffix".into())
+                .await
+                .unwrap(),
+            "old middle"
+        );
+        model.replace(Arc::new(second)).await;
+        assert_eq!(
+            model
+                .complete_fim("prefix".into(), "suffix".into())
+                .await
+                .unwrap(),
+            "new middle"
+        );
     }
 }

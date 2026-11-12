@@ -2,23 +2,32 @@
 
 Le Harness accepts Mistral credentials and model IDs from the process
 environment or an interactive setup dialog. A prompted API key is saved in the
-operating system credential store and reused; prompted model selections remain
-scoped to the current process. Le Harness does not mutate the environment or
+operating system credential store and reused; prompted model selections are
+saved in the user config directory. Le Harness does not mutate the environment or
 load a repository `.env` file.
 
 | Setting | Purpose | Required |
 | --- | --- | --- |
 | `MISTRAL_API_KEY` | Mistral authentication override; otherwise reuse the saved key or ask in an interactive terminal | Cloud runs and `doctor --live` |
-| `LE_HARNESS_CHAT_MODEL` | Planner/chat model ID; otherwise discover and ask interactively | Cloud runs |
-| `LE_HARNESS_FIM_MODEL` | Codestral-compatible FIM model ID; otherwise discover and ask interactively | Cloud runs |
+| `LE_HARNESS_CHAT_MODEL` | Planner/chat model ID; otherwise use the saved choice or ask interactively | Cloud runs |
+| `LE_HARNESS_FIM_MODEL` | Codestral-compatible FIM model ID; otherwise use the saved choice or ask interactively | Cloud runs |
 | `LE_HARNESS_UTILITY_MODEL` | Utility model ID | Optional; defaults to chat |
 | `LE_HARNESS_MISTRAL_BASE_URL` | Alternate Mistral-compatible API root; the Mistral key is sent to this endpoint | Optional; HTTPS, or explicit loopback HTTP |
 | `LE_HARNESS_LOCAL_API_KEY` | Authentication for a loopback server | Optional |
 | `LE_HARNESS_STATE_DIR` | Parent directory for session journals | Optional |
+| `LE_HARNESS_CONFIG_DIR` | Directory for saved cloud model choices | Optional |
 
 When a required model ID is absent in an interactive terminal, Le Harness first
 resolves the API key, queries the authenticated model list, and presents a
-numbered picker. The chat picker prefers active chat models with tool-calling
+numbered picker. The selected chat and FIM IDs are saved to
+`$XDG_CONFIG_HOME/le-harness/models.json` (or
+`$HOME/.config/le-harness/models.json`; on Windows, `%APPDATA%/le-harness/models.json`).
+An absolute `LE_HARNESS_CONFIG_DIR` can select a different directory. Model IDs are not
+credentials. Enter `/model` in an active cloud chat to discover and select
+new models without losing conversation history. Environment model values
+override saved choices on the next start.
+
+The chat picker prefers active chat models with tool-calling
 support; the FIM picker prefers models that advertise FIM. It never substitutes
 a hardcoded model name. `LE_HARNESS_UTILITY_MODEL` remains optional and defaults
 to the selected chat model. Run `le-harness doctor --live` to print the complete
