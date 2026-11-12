@@ -298,6 +298,11 @@ pub fn coding_tools() -> Vec<Tool> {
             serde_json::json!({"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}),
         ),
         tool(
+            "create_file",
+            "Create a new UTF-8 file in the workspace without overwriting an existing path. Use only when the user asks to save code to a file; otherwise provide code in the reply.",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}),
+        ),
+        tool(
             "replace_span",
             "Replace an exact UTF-8 byte span using a snapshot hash",
             serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":0},"replacement":{"type":"string"}},"required":["path","expected_sha256","start","end","replacement"],"additionalProperties":false}),

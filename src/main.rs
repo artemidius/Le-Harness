@@ -602,6 +602,7 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         .register("list_files", Effect::Read)
         .register("read_file", Effect::Read)
         .register("search", Effect::Read)
+        .register("create_file", Effect::Write)
         .register("replace_span", Effect::Write)
         .register("fim_replace_span", Effect::Write)
         .register("run_command", Effect::Execute);

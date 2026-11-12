@@ -16,6 +16,10 @@ pub enum EditError {
     OutsideRepository,
     #[error("edit target is not a regular file")]
     NotFile,
+    #[error("file already exists: {0}")]
+    AlreadyExists(String),
+    #[error("new file exceeds the {limit}-byte limit")]
+    TooLarge { limit: usize },
     #[error("edit target is not UTF-8 text")]
     Binary,
     #[error("edit span {start}..{end} is invalid for a {length}-byte file")]
@@ -41,6 +45,18 @@ pub struct FileSnapshot {
     pub path: String,
     pub sha256: String,
     pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateFileRequest {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatedFile {
+    pub path: String,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +117,55 @@ impl WorkspaceEditor {
             path: display,
             sha256: hash(content.as_bytes()),
             content,
+        })
+    }
+
+    /// Publish a complete new file without replacing an existing file or symlink.
+    pub fn create(&self, request: CreateFileRequest) -> Result<CreatedFile, EditError> {
+        const MAX_CREATE_BYTES: usize = 1024 * 1024;
+        if request.content.len() > MAX_CREATE_BYTES {
+            return Err(EditError::TooLarge {
+                limit: MAX_CREATE_BYTES,
+            });
+        }
+        let relative = Path::new(&request.path);
+        if relative.as_os_str().is_empty()
+            || relative.is_absolute()
+            || relative.components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
+        {
+            return Err(EditError::InvalidPath);
+        }
+        let name = relative.file_name().ok_or(EditError::InvalidPath)?;
+        let parent = self
+            .root
+            .join(relative.parent().ok_or(EditError::InvalidPath)?)
+            .canonicalize()?;
+        if !parent.starts_with(&self.root) {
+            return Err(EditError::OutsideRepository);
+        }
+        if !parent.is_dir() {
+            return Err(EditError::InvalidPath);
+        }
+        let destination = parent.join(name);
+        let mut temporary = NamedTempFile::new_in(&parent)?;
+        temporary.write_all(request.content.as_bytes())?;
+        temporary.as_file_mut().sync_all()?;
+        temporary.persist_noclobber(&destination).map_err(|error| {
+            if error.error.kind() == io::ErrorKind::AlreadyExists {
+                EditError::AlreadyExists(request.path.clone())
+            } else {
+                EditError::Io(error.error)
+            }
+        })?;
+        sync_directory(&parent)?;
+        Ok(CreatedFile {
+            path: request.path.replace('\\', "/"),
+            sha256: hash(request.content.as_bytes()),
         })
     }
 
@@ -242,6 +307,63 @@ mod tests {
         let editor = WorkspaceEditor::open(directory.path()).unwrap();
         let snapshot = editor.snapshot(name).unwrap();
         (directory, editor, snapshot)
+    }
+
+    #[test]
+    fn creates_a_new_file_without_replacing_existing_content() {
+        let directory = tempdir().unwrap();
+        fs::create_dir(directory.path().join("src")).unwrap();
+        let editor = WorkspaceEditor::open(directory.path()).unwrap();
+        let request = CreateFileRequest {
+            path: "src/sort.py".into(),
+            content: "def sort(items):\n    return items\n".into(),
+        };
+        let created = editor.create(request.clone()).unwrap();
+        assert_eq!(created.path, request.path);
+        assert_eq!(created.sha256, hash(request.content.as_bytes()));
+        assert_eq!(
+            fs::read_to_string(directory.path().join("src/sort.py")).unwrap(),
+            request.content
+        );
+        assert!(matches!(
+            editor.create(CreateFileRequest {
+                content: "replacement".into(),
+                ..request
+            }),
+            Err(EditError::AlreadyExists(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(directory.path().join("src/sort.py")).unwrap(),
+            "def sort(items):\n    return items\n"
+        );
+    }
+
+    #[test]
+    fn create_rejects_outside_paths_and_symlinked_parents() {
+        let directory = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let editor = WorkspaceEditor::open(directory.path()).unwrap();
+        for path in ["../escape.py", "/tmp/escape.py"] {
+            assert!(matches!(
+                editor.create(CreateFileRequest {
+                    path: path.into(),
+                    content: "x".into()
+                }),
+                Err(EditError::InvalidPath)
+            ));
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(outside.path(), directory.path().join("link")).unwrap();
+            assert!(matches!(
+                editor.create(CreateFileRequest {
+                    path: "link/escape.py".into(),
+                    content: "x".into()
+                }),
+                Err(EditError::OutsideRepository)
+            ));
+            assert!(!outside.path().join("escape.py").exists());
+        }
     }
 
     #[test]
