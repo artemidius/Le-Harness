@@ -341,6 +341,7 @@ mod tests {
     #[test]
     fn create_rejects_outside_paths_and_symlinked_parents() {
         let directory = tempdir().unwrap();
+        #[cfg(unix)]
         let outside = tempdir().unwrap();
         let editor = WorkspaceEditor::open(directory.path()).unwrap();
         for path in ["../escape.py", "/tmp/escape.py"] {
