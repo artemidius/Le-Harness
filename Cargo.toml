@@ -1,6 +1,6 @@
 [package]
 name = "le-harness"
-version = "0.0.0"
+version = "0.1.0-rc.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A transparent coding-agent runtime for the Mistral ecosystem"
@@ -9,6 +9,7 @@ repository = "https://github.com/artemidius/Le-Harness"
 readme = "README.md"
 keywords = ["mistral", "codestral", "agent", "cli", "rust"]
 categories = ["command-line-utilities", "development-tools"]
+publish = false
 
 [dependencies]
 async-trait = "0.1"

@@ -5,7 +5,7 @@
 
 Le Harness is a Rust coding-agent runtime for the Mistral ecosystem. It is designed around transactional edits, native Codestral fill-in-the-middle requests, explicit permissions, and inspectable execution traces.
 
-The project is under active development. Its current version is not a production release.
+The current version is a release candidate, not a production release.
 
 ## Provider configuration
 
@@ -74,6 +74,8 @@ events, the selected event's structured payload, terminal status, and answer.
 - Runtime events use a versioned JSON envelope so sessions and machine-readable output remain inspectable.
 
 See the [architecture](docs/architecture/overview.md), [threat model](docs/architecture/threat-model.md), [configuration reference](docs/configuration.md), [limitations](docs/limitations.md), [validation matrix](docs/validation.md), and [delivery plan](docs/implementation-plan.md).
+
+Preview binaries and checksums are published on the [GitHub Releases](https://github.com/artemidius/Le-Harness/releases) page.
 
 ## Development
 
