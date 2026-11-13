@@ -43,11 +43,15 @@ class AssembleManifestTests(unittest.TestCase):
                 (directory / f"le-harness-v1.2.3-{target}.{extension}").write_bytes(
                     target.encode()
                 )
+            for target, architecture in assemble_manifest.DEBIAN_ARCHITECTURES.items():
+                (directory / f"le-harness_1.2.3-1_{architecture}.deb").write_bytes(
+                    target.encode()
+                )
 
             manifest = assemble_manifest.assemble(directory, "v1.2.3", "a" * 40)
 
             self.assertEqual(manifest["channel"], "stable")
-            self.assertEqual(len(manifest["artifacts"]), 4)
+            self.assertEqual(len(manifest["artifacts"]), 6)
             serialized = json.dumps(manifest)
             self.assertIn("sha256", serialized)
             self.assertIn("source_commit", serialized)
@@ -56,6 +60,12 @@ class AssembleManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaisesRegex(ValueError, "required artifact"):
                 assemble_manifest.assemble(pathlib.Path(temporary), "v1.0.0", "b" * 40)
+
+    def test_debian_prerelease_versions_sort_before_stable(self) -> None:
+        self.assertEqual(
+            assemble_manifest.debian_version("0.1.0-rc.3"), "0.1.0~rc.3-1"
+        )
+        self.assertEqual(assemble_manifest.debian_version("0.1.0"), "0.1.0-1")
 
 
 if __name__ == "__main__":

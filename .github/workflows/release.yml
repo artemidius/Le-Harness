@@ -56,8 +56,10 @@ jobs:
         include:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            debian_arch: amd64
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            debian_arch: arm64
     runs-on: ${{ matrix.runner }}
     container: debian:12-slim
     steps:
@@ -65,7 +67,7 @@ jobs:
         run: |
           apt-get update
           apt-get install --yes --no-install-recommends \
-            build-essential ca-certificates curl file git pkg-config
+            build-essential ca-certificates curl dpkg-dev file git lintian pkg-config python3
           rm -rf /var/lib/apt/lists/*
       - uses: actions/checkout@v7
       - name: Install Rust
@@ -74,6 +76,8 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install pinned Debian packager
+        run: cargo install cargo-deb --version 3.8.0 --locked
       - name: Build release binary
         run: cargo build --locked --release --target "${{ matrix.target }}"
       - name: Smoke test and inspect runtime dependencies
@@ -92,6 +96,45 @@ jobs:
           archive="le-harness-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.tar.gz"
           tar -C package -czf "out/$archive" .
           mv runtime-*.txt out/
+      - name: Build and inspect Debian packages
+        shell: bash
+        run: |
+          main_version="$(python3 -c 'from scripts.release.assemble_manifest import debian_version; print(debian_version("${{ needs.validate.outputs.version }}"))')"
+          main_deb="out/le-harness_${main_version}_${{ matrix.debian_arch }}.deb"
+          fixture_deb="out/upgrade-fixture-${{ matrix.debian_arch }}.deb"
+          cargo deb --no-build --no-strip --target "${{ matrix.target }}" \
+            --deb-revision 1 --output "$main_deb"
+          cargo deb --no-build --no-strip --target "${{ matrix.target }}" \
+            --deb-revision 0 --output "$fixture_deb"
+          test "$(dpkg-deb -f "$main_deb" Architecture)" = "${{ matrix.debian_arch }}"
+
+          dependencies="$(dpkg-deb -f "$main_deb" Depends)"
+          grep -Fq ca-certificates <<< "$dependencies"
+          grep -Fq git <<< "$dependencies"
+          test "$(dpkg-deb -f "$main_deb" Suggests)" = docker.io
+          dpkg --compare-versions "$(dpkg-deb -f "$fixture_deb" Version)" lt "$main_version"
+          dpkg --compare-versions 0.1.0~rc.2-1 lt 0.1.0~rc.3-1
+          dpkg --compare-versions 0.1.0~rc.3-1 lt 0.1.0~rc.10-1
+          dpkg --compare-versions 0.1.0~rc.10-1 lt 0.1.0-1
+          dpkg --compare-versions 0.1.0-1 lt 0.1.0-2
+
+          rm -rf package-root package-control
+          mkdir package-root package-control
+          dpkg-deb --extract "$main_deb" package-root
+          dpkg-deb --control "$main_deb" package-control
+          cmp "target/${{ matrix.target }}/release/le-harness" package-root/usr/bin/le-harness
+          test "$(stat -c '%a' package-root/usr/bin/le-harness)" = 755
+          test -f package-root/usr/share/doc/le-harness/copyright
+          if find package-control -maxdepth 1 -type f \
+            \( -name preinst -o -name postinst -o -name prerm -o -name postrm \) \
+            | grep -q .; then
+            echo "unexpected Debian maintainer script" >&2
+            exit 1
+          fi
+
+          dpkg-deb --info "$main_deb" > "out/package-${{ matrix.target }}-info.txt"
+          dpkg-deb --contents "$main_deb" > "out/package-${{ matrix.target }}-contents.txt"
+          lintian --fail-on error "$main_deb" > "out/package-${{ matrix.target }}-lintian.txt" 2>&1
       - uses: actions/upload-artifact@v6
         with:
           name: release-${{ matrix.target }}
@@ -153,8 +196,64 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  test-deb:
+    needs: [validate, build-linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: amd64
+            image: debian:12-slim
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: amd64
+            image: debian:13-slim
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: amd64
+            image: ubuntu:24.04
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: amd64
+            image: ubuntu:26.04
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            architecture: arm64
+            image: debian:12-slim
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            architecture: arm64
+            image: debian:13-slim
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            architecture: arm64
+            image: ubuntu:24.04
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            architecture: arm64
+            image: ubuntu:26.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: packages
+      - name: Test install, upgrade, removal, and purge
+        shell: bash
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/packages,dst=/packages,readonly" \
+            "${{ matrix.image }}" \
+            bash /workspace/scripts/release/test_deb_install.sh \
+              /packages "${{ needs.validate.outputs.version }}" "${{ matrix.architecture }}"
+
   manifest:
-    needs: [validate, build-linux, build-portable]
+    needs: [validate, build-linux, build-portable, test-deb]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -176,6 +275,7 @@ jobs:
           path: |
             release/le-harness-*.tar.gz
             release/le-harness-*.zip
+            release/le-harness_*.deb
             release/release-manifest.json
             release/SHA256SUMS
           if-no-files-found: error
