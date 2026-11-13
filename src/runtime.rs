@@ -8,6 +8,7 @@ use le_rust::chat::{Message, ToolCall};
 use serde::{Deserialize, Serialize};
 
 use crate::event::RuntimeEvent;
+use crate::model::coding_tools;
 use crate::model::{ChatTurn, ModelAdapter, ModelEvent};
 
 #[derive(Debug, Clone, Copy)]
@@ -139,6 +140,7 @@ where
                 .model
                 .stream_chat(ChatTurn {
                     messages: state.messages.clone(),
+                    tools: coding_tools(),
                 })
                 .await;
             let mut stream = match response {
