@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use le_rust::chat::Tool;
 use le_rust::chat::{Message, ToolCall};
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +104,7 @@ pub struct AgentController<A, T> {
     tools: T,
     limits: AgentLimits,
     cancellation: CancellationToken,
+    tool_catalog: Vec<Tool>,
 }
 
 impl<A, T> AgentController<A, T>
@@ -116,7 +118,13 @@ where
             tools,
             limits,
             cancellation: CancellationToken::default(),
+            tool_catalog: coding_tools(),
         }
+    }
+
+    pub fn with_tool_catalog(mut self, tools: Vec<Tool>) -> Self {
+        self.tool_catalog = tools;
+        self
     }
 
     pub fn cancellation_token(&self) -> CancellationToken {
@@ -163,7 +171,7 @@ where
                 .model
                 .stream_chat(ChatTurn {
                     messages: context.messages,
-                    tools: coding_tools(),
+                    tools: self.tool_catalog.clone(),
                     role: crate::model::ModelRole::Planner,
                 })
                 .await;

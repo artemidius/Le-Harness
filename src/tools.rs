@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use crate::edit::{SpanEdit, WorkspaceEditor};
 use crate::execution::{CommandSpec, ExecutionBackend};
 use crate::fim::{FimEditRequest, FimService};
+use crate::mcp::McpManager;
 use crate::repository::RepositoryToolHandler;
 use crate::runtime::{ToolHandler, ToolInvocation, ToolResult};
 
@@ -13,6 +14,7 @@ pub struct CodingTools {
     editor: WorkspaceEditor,
     execution: Arc<dyn ExecutionBackend>,
     fim: Option<Arc<dyn FimService>>,
+    mcp: Option<Arc<McpManager>>,
 }
 
 impl CodingTools {
@@ -26,7 +28,13 @@ impl CodingTools {
             editor,
             execution,
             fim: None,
+            mcp: None,
         }
+    }
+
+    pub fn with_mcp(mut self, mcp: Arc<McpManager>) -> Self {
+        self.mcp = Some(mcp);
+        self
     }
 
     pub fn with_fim(mut self, fim: Arc<dyn FimService>) -> Self {
@@ -87,6 +95,15 @@ impl ToolHandler for CodingTools {
                         Ok(output) => ToolResult::success(output),
                         Err(error) => ToolResult::error(error.to_string()),
                     },
+                    Err(error) => ToolResult::error(error.to_string()),
+                }
+            }
+            name if name.starts_with("mcp__") => {
+                let Some(mcp) = &self.mcp else {
+                    return ToolResult::error("MCP is not configured");
+                };
+                match mcp.call(name, &invocation.arguments).await {
+                    Ok(output) => ToolResult::success(output),
                     Err(error) => ToolResult::error(error.to_string()),
                 }
             }

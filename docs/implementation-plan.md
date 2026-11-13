@@ -16,7 +16,7 @@ Le Harness is delivered through eighteen sequential pull requests. Each PR is re
 | H09 | Evaluation harness and baseline report | Complete ([#10](https://github.com/artemidius/Le-Harness/pull/10)) |
 | H10 | Context management and compaction | Complete ([#11](https://github.com/artemidius/Le-Harness/pull/11)) |
 | H11 | Configurable cloud model routing | Complete ([#12](https://github.com/artemidius/Le-Harness/pull/12)) |
-| H12 | MCP client integration | Planned |
+| H12 | MCP client integration | Complete ([#13](https://github.com/artemidius/Le-Harness/pull/13)) |
 | H13 | Local inference adapter | Planned |
 | H14 | Session resume and inspection | Planned |
 | H15 | TUI | Planned |
