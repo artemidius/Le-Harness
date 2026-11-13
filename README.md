@@ -12,8 +12,13 @@ The current version is a release candidate, not a production release.
 Install the prebuilt release from the project-owned Homebrew tap:
 
 ```text
+brew tap artemidius/tap
+brew trust --formula artemidius/tap/le-harness
 brew install artemidius/tap/le-harness
 ```
+
+The formula-scoped trust applies only to Le Harness, not to other current or
+future formulae in the tap.
 
 Debian and Ubuntu users can opt into the signed preview APT repository, then
 install and upgrade with ordinary `apt` commands. Direct archives and `.deb`
