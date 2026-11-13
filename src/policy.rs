@@ -66,6 +66,8 @@ pub struct ApprovalRequest {
     pub arguments: String,
     pub effect: Effect,
     pub binding: ApprovalBinding,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 impl ApprovalRequest {
@@ -75,7 +77,13 @@ impl ApprovalRequest {
             arguments: invocation.arguments.clone(),
             effect,
             binding: ApprovalBinding::for_invocation(invocation, effect),
+            preview: None,
         }
+    }
+
+    pub fn with_preview(mut self, preview: Option<String>) -> Self {
+        self.preview = preview;
+        self
     }
 }
 
@@ -173,6 +181,13 @@ impl<T> PolicyToolHandler<T> {
 
 #[async_trait]
 impl<T: ToolHandler> ToolHandler for PolicyToolHandler<T> {
+    async fn approval_preview(
+        &self,
+        invocation: &ToolInvocation,
+    ) -> Result<Option<String>, String> {
+        self.inner.approval_preview(invocation).await
+    }
+
     async fn execute(&self, invocation: &ToolInvocation) -> ToolResult {
         let Some(effect) = self.effects.effect(&invocation.name) else {
             return ToolResult::error(format!(
@@ -235,6 +250,13 @@ impl<T: ToolHandler, A: Approver> ToolHandler for InteractivePolicyToolHandler<T
                 ToolResult::error(format!("permission denied: {reason}"))
             }
             PolicyDecision::RequireApproval(request) => {
+                let preview = match self.inner.approval_preview(invocation).await {
+                    Ok(preview) => preview,
+                    Err(error) => {
+                        return ToolResult::error(format!("cannot preview action: {error}"));
+                    }
+                };
+                let request = request.with_preview(preview);
                 let Some(confirmation) = self.approver.approve(&request).await else {
                     return ToolResult::error(format!("approval denied for {}", request.tool));
                 };
@@ -258,8 +280,35 @@ mod tests {
 
     #[async_trait]
     impl ToolHandler for Called {
+        async fn approval_preview(
+            &self,
+            _invocation: &ToolInvocation,
+        ) -> Result<Option<String>, String> {
+            Ok(Some("previewed diff".into()))
+        }
+
         async fn execute(&self, _invocation: &ToolInvocation) -> ToolResult {
             ToolResult::success("called")
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct CapturingApprover(Arc<Mutex<Option<ApprovalRequest>>>);
+
+    #[async_trait]
+    impl Approver for CapturingApprover {
+        async fn approve(&self, request: &ApprovalRequest) -> Option<ApprovalBinding> {
+            *self.0.lock().unwrap() = Some(request.clone());
+            Some(request.binding.clone())
+        }
+    }
+
+    struct RejectingApprover;
+
+    #[async_trait]
+    impl Approver for RejectingApprover {
+        async fn approve(&self, _request: &ApprovalRequest) -> Option<ApprovalBinding> {
+            None
         }
     }
 
@@ -342,5 +391,38 @@ mod tests {
             PermissionPolicy::new(PermissionMode::Assisted, ApprovalStore::default()),
         );
         assert!(handler.execute(&invocation("{}")).await.is_error);
+    }
+
+    #[tokio::test]
+    async fn interactive_approval_includes_a_reviewable_preview() {
+        let approvals = ApprovalStore::default();
+        let approver = CapturingApprover::default();
+        let captured = approver.clone();
+        let handler = InteractivePolicyToolHandler::new(
+            Called,
+            ToolEffects::default().register("write_file", Effect::Write),
+            PermissionPolicy::new(PermissionMode::Assisted, approvals.clone()),
+            approvals,
+            approver,
+        );
+        let result = handler.execute(&invocation(r#"{"path":"a"}"#)).await;
+        assert!(!result.is_error);
+        let request = captured.0.lock().unwrap().clone().unwrap();
+        assert_eq!(request.preview.as_deref(), Some("previewed diff"));
+    }
+
+    #[tokio::test]
+    async fn denied_interactive_action_is_never_executed() {
+        let approvals = ApprovalStore::default();
+        let handler = InteractivePolicyToolHandler::new(
+            Called,
+            ToolEffects::default().register("write_file", Effect::Write),
+            PermissionPolicy::new(PermissionMode::Assisted, approvals.clone()),
+            approvals,
+            RejectingApprover,
+        );
+        let result = handler.execute(&invocation(r#"{"path":"a"}"#)).await;
+        assert!(result.is_error);
+        assert!(result.content.contains("approval denied"));
     }
 }

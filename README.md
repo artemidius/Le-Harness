@@ -131,9 +131,12 @@ not a terminal, or with `--no-input` or `--json`, `run` processes one prompt
 and exits for script compatibility.
 
 For a code request without a filename, the agent replies with code in the
-chat. Ask it to create a named file when you want code saved in the workspace;
-new files require the same approval as edits in assisted mode. Existing paths
-are never overwritten by the new-file tool.
+chat. Ask it to create, change, or delete named files when you want the
+workspace changed. Reads return a SHA-256 snapshot; every edit and deletion is
+bound to that snapshot so a concurrent change is rejected. In assisted mode,
+Le Harness shows a bounded diff or deletion summary before asking for approval.
+New files can create missing parent directories and never overwrite an existing
+path.
 
 The default assisted mode allows repository reads and asks before each exact write or command:
 
