@@ -78,7 +78,7 @@ events, the selected event's structured payload, terminal status, and answer.
 - Model output never grants authority to modify a workspace or execute a command.
 - Runtime events use a versioned JSON envelope so sessions and machine-readable output remain inspectable.
 
-See the [architecture](docs/architecture/overview.md), [threat model](docs/architecture/threat-model.md), [configuration reference](docs/configuration.md), [limitations](docs/limitations.md), [validation matrix](docs/validation.md), and [delivery plan](docs/implementation-plan.md).
+See the [architecture](docs/architecture/overview.md), [threat model](docs/architecture/threat-model.md), [configuration reference](docs/configuration.md), [limitations](docs/limitations.md), [validation matrix](docs/validation.md), [release process](docs/release-process.md), and [delivery plan](docs/implementation-plan.md).
 
 Preview binaries and checksums are published on the [GitHub Releases](https://github.com/artemidius/Le-Harness/releases) page.
 
