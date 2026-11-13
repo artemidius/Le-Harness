@@ -4,6 +4,7 @@
 pub mod edit;
 pub mod event;
 pub mod execution;
+pub mod fim;
 pub mod model;
 pub mod policy;
 pub mod repository;
