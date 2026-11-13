@@ -10,6 +10,7 @@ pub mod fim;
 pub mod model;
 pub mod policy;
 pub mod repository;
+pub mod router;
 pub mod runtime;
 pub mod settings;
 pub mod tools;
