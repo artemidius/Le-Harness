@@ -3,6 +3,7 @@
 
 pub mod event;
 pub mod model;
+pub mod policy;
 pub mod repository;
 pub mod runtime;
 pub mod settings;
