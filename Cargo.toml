@@ -3,13 +3,34 @@ name = "le-harness"
 version = "0.1.0-rc.2"
 edition = "2024"
 rust-version = "1.88"
-description = "A transparent coding-agent runtime for the Mistral ecosystem"
+description = "Transparent coding-agent runtime for the Mistral ecosystem"
 license = "MIT"
 repository = "https://github.com/artemidius/Le-Harness"
 readme = "README.md"
 keywords = ["mistral", "codestral", "agent", "cli", "rust"]
 categories = ["command-line-utilities", "development-tools"]
 publish = false
+
+[package.metadata.deb]
+maintainer = "Artem Sborets <9936670+artemidius@users.noreply.github.com>"
+copyright = "2026, Artem Sborets"
+license-file = ["LICENSE", "0"]
+extended-description-file = "packaging/debian/description.txt"
+changelog = "packaging/debian/changelog"
+depends = "$auto, ca-certificates, git"
+suggests = "docker.io"
+section = "devel"
+priority = "optional"
+assets = [
+    ["target/release/le-harness", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/le-harness/README.md", "644"],
+    ["CHANGELOG.md", "usr/share/doc/le-harness/changelog", "644"],
+    ["docs/configuration.md", "usr/share/doc/le-harness/configuration.md", "644"],
+    ["packaging/le-harness.1", "usr/share/man/man1/le-harness.1", "644"],
+]
+
+[profile.release]
+strip = "symbols"
 
 [dependencies]
 async-trait = "0.1"

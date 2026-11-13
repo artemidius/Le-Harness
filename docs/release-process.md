@@ -6,7 +6,7 @@ before any build starts.
 
 ## Artifact contract
 
-The release workflow builds these archives:
+The release workflow builds these archives and Debian packages:
 
 | Target | Build environment | Archive |
 | --- | --- | --- |
@@ -14,6 +14,8 @@ The release workflow builds these archives:
 | `aarch64-unknown-linux-gnu` | Native ARM64, Debian 12 container | `.tar.gz` |
 | `aarch64-apple-darwin` | macOS 15 ARM64 runner | `.tar.gz` |
 | `x86_64-pc-windows-msvc` | Windows Server 2025 runner | `.zip` |
+| Debian amd64 | Same Debian 12 x86_64 release binary | `.deb` |
+| Debian arm64 | Same Debian 12 ARM64 release binary | `.deb` |
 
 Linux artifacts use native runners rather than emulation. The pinned Debian 12
 userspace is the compatibility baseline; package compatibility is still tested
@@ -21,7 +23,8 @@ separately on every advertised distribution.
 
 Each build runs the packaged binary without provider credentials. Linux builds
 also record `file` and `ldd` output as workflow evidence. The public bundle
-contains the archives, `SHA256SUMS`, and `release-manifest.json`. The manifest
+contains the archives, Debian packages, `SHA256SUMS`, and
+`release-manifest.json`. The manifest
 records the exact tag, version, channel, source commit, target, byte size, and
 SHA-256 digest.
 
