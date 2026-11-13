@@ -120,7 +120,9 @@ pub struct MistralAdapter {
 
 impl MistralAdapter {
     pub fn from_settings(settings: &MistralSettings) -> Result<Self, ModelError> {
-        let client = Client::builder().api_key(&settings.api_key).build()?;
+        let client = Client::builder()
+            .api_key(settings.api_key.expose())
+            .build()?;
         Ok(Self {
             client,
             chat_model: settings.chat_model.clone(),
