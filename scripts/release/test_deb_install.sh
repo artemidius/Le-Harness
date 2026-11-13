@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-package_directory=${1:?package directory is required}
+package_directory_input=${1:?package directory is required}
 expected_upstream=${2:?upstream version is required}
 expected_architecture=${3:?Debian architecture is required}
+package_directory=$(cd "$package_directory_input" && pwd)
 
 main_package=$(find "$package_directory" -maxdepth 1 -type f -name 'le-harness_*.deb' -print -quit)
 upgrade_fixture=$(find "$package_directory" -maxdepth 1 -type f -name 'upgrade-fixture-*.deb' -print -quit)
