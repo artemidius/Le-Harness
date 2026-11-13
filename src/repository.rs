@@ -73,6 +73,7 @@ impl Repository {
             .git_ignore(true)
             .git_exclude(true)
             .git_global(false)
+            .require_git(false)
             .follow_links(false)
             .build();
         for entry in walker {
