@@ -12,6 +12,9 @@
 - [x] Signed APT metadata, package hash, and tamper-rejection tests.
 - [x] Release asset names round-trip through GitHub without normalization.
 - [x] Hidden credential PTY and noninteractive fail-fast tests.
+- [x] Public APT installs on Debian 12 ARM64 and Ubuntu 24.04 amd64.
+- [x] Public Homebrew formula matrix on macOS ARM64 and Linux amd64/arm64.
+- [x] Idempotent, manifest-driven Homebrew update workflow with scoped tap access.
 - [x] MIT license, security policy, contribution guide, changelog, and release notes.
 
 ## External gates
