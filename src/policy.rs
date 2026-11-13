@@ -45,6 +45,11 @@ impl ApprovalBinding {
     }
 }
 
+#[async_trait]
+pub trait Approver: Send + Sync {
+    async fn approve(&self, request: &ApprovalRequest) -> Option<ApprovalBinding>;
+}
+
 fn effect_name(effect: Effect) -> &'static [u8] {
     match effect {
         Effect::Read => b"read",
@@ -184,6 +189,61 @@ impl<T: ToolHandler> ToolHandler for PolicyToolHandler<T> {
             )),
             PolicyDecision::Deny { reason } => {
                 ToolResult::error(format!("permission denied: {reason}"))
+            }
+        }
+    }
+}
+
+pub struct InteractivePolicyToolHandler<T, A> {
+    inner: T,
+    effects: ToolEffects,
+    policy: PermissionPolicy,
+    approvals: ApprovalStore,
+    approver: A,
+}
+
+impl<T, A> InteractivePolicyToolHandler<T, A> {
+    pub fn new(
+        inner: T,
+        effects: ToolEffects,
+        policy: PermissionPolicy,
+        approvals: ApprovalStore,
+        approver: A,
+    ) -> Self {
+        Self {
+            inner,
+            effects,
+            policy,
+            approvals,
+            approver,
+        }
+    }
+}
+
+#[async_trait]
+impl<T: ToolHandler, A: Approver> ToolHandler for InteractivePolicyToolHandler<T, A> {
+    async fn execute(&self, invocation: &ToolInvocation) -> ToolResult {
+        let Some(effect) = self.effects.effect(&invocation.name) else {
+            return ToolResult::error(format!(
+                "permission denied: tool '{}' has no registered effect",
+                invocation.name
+            ));
+        };
+        match self.policy.evaluate(invocation, effect) {
+            PolicyDecision::Allow => self.inner.execute(invocation).await,
+            PolicyDecision::Deny { reason } => {
+                ToolResult::error(format!("permission denied: {reason}"))
+            }
+            PolicyDecision::RequireApproval(request) => {
+                let Some(confirmation) = self.approver.approve(&request).await else {
+                    return ToolResult::error(format!("approval denied for {}", request.tool));
+                };
+                if !self.approvals.grant(&request, &confirmation) {
+                    return ToolResult::error(
+                        "approval confirmation did not match the requested action",
+                    );
+                }
+                self.inner.execute(invocation).await
             }
         }
     }
