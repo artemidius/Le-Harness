@@ -11,6 +11,7 @@ import select
 import signal
 import sys
 import termios
+import tempfile
 import threading
 import time
 
@@ -21,6 +22,7 @@ SENTINEL = "pty-secret-sentinel"
 
 class ModelHandler(http.server.BaseHTTPRequestHandler):
     authorization: str | None = None
+    request_path: str | None = None
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         if self.path != "/v1/models":
@@ -35,6 +37,34 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
         ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+        if self.path != "/v1/chat/completions":
+            self.send_error(404)
+            return
+        type(self).authorization = self.headers.get("Authorization")
+        type(self).request_path = self.path
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        event = json.dumps(
+            {
+                "id": "fixture-chat",
+                "model": "fixture-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "fixture answer"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        )
+        body = f"data: {event}\n\ndata: [DONE]\n\n".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -94,10 +124,28 @@ def main() -> None:
     ]:
         environment.pop(name, None)
     environment["LE_HARNESS_MISTRAL_BASE_URL"] = f"http://127.0.0.1:{port}/v1/"
+    environment["LE_HARNESS_CHAT_MODEL"] = "fixture-model"
+    environment["LE_HARNESS_FIM_MODEL"] = "fixture-fim"
+    workspace = tempfile.TemporaryDirectory()
+    sessions = os.path.join(workspace.name, "sessions")
 
     pid, master = pty.fork()
     if pid == 0:
-        os.execve(sys.argv[1], [sys.argv[1], "doctor", "--live"], environment)
+        os.execve(
+            sys.argv[1],
+            [
+                sys.argv[1],
+                "run",
+                "answer from the fixture",
+                "--mode",
+                "inspect",
+                "--root",
+                workspace.name,
+                "--session-dir",
+                sessions,
+            ],
+            environment,
+        )
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -122,11 +170,16 @@ def main() -> None:
         thread.join(timeout=2)
 
     rendered = bytes(output)
-    assert status == 0, f"doctor failed with {status}: {rendered!r}"
+    assert status == 0, f"fixture-backed run failed with {status}: {rendered!r}"
     assert rendered.count(PROMPT) == 1, rendered
     assert SENTINEL.encode() not in rendered, rendered
-    assert b"fixture-model" in rendered, rendered
+    assert b"fixture answer" in rendered, rendered
     assert ModelHandler.authorization == f"Bearer {SENTINEL}"
+    assert ModelHandler.request_path == "/v1/chat/completions"
+    for root, _, files in os.walk(sessions):
+        for name in files:
+            with open(os.path.join(root, name), "rb") as stored:
+                assert SENTINEL.encode() not in stored.read(), name
 
     cancelled_pid, cancelled_master = pty.fork()
     if cancelled_pid == 0:
@@ -147,6 +200,7 @@ def main() -> None:
 
     assert cancelled_status != 0, cancelled_output
     assert b"API key input was cancelled" in cancelled_output, cancelled_output
+    workspace.cleanup()
 
 
 if __name__ == "__main__":
