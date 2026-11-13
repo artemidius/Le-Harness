@@ -56,11 +56,15 @@ or safely continue a terminal session, without replaying its completed tools:
 le-harness session list
 le-harness session inspect <session-id>
 le-harness run "Now add the regression test" --resume <session-id> --root .
+le-harness tui <session-id>
 ```
 
 Use `--session-dir` to select an exact journal directory or
 `LE_HARNESS_STATE_DIR` to relocate all state. See the [session journal
 contract](docs/sessions.md) for resume and crash-safety boundaries.
+
+The TUI is a keyboard-driven trace inspector: it shows the ordered runtime
+events, the selected event's structured payload, terminal status, and answer.
 
 ## Design boundaries
 
