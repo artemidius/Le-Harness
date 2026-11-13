@@ -25,8 +25,8 @@ assemble_manifest = load("assemble_manifest")
 
 class ValidateReleaseTests(unittest.TestCase):
     def test_current_package_metadata_is_consistent(self) -> None:
-        result = validate_release.validate(ROOT, "v0.1.0-rc.2")
-        self.assertEqual(result["version"], "0.1.0-rc.2")
+        result = validate_release.validate(ROOT, "v0.1.0-rc.3")
+        self.assertEqual(result["version"], "0.1.0-rc.3")
         self.assertEqual(result["channel"], "preview")
         self.assertTrue(result["prerelease"])
 
