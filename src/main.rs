@@ -10,6 +10,7 @@ use le_harness::edit::WorkspaceEditor;
 use le_harness::eval::{EvalManifest, EvalMode};
 use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, NativeExecution};
 use le_harness::fim::FimEditEngine;
+use le_harness::local::{LocalModelConfig, LocalOpenAiAdapter};
 use le_harness::mcp::{McpConfig, McpManager};
 use le_harness::model::{MistralAdapter, ModelAdapter, coding_tools};
 use le_harness::policy::{
@@ -17,7 +18,7 @@ use le_harness::policy::{
     InteractivePolicyToolHandler, PermissionMode, PermissionPolicy, ToolEffects,
 };
 use le_harness::repository::{Repository, RepositoryToolHandler, RepositoryToolLimits};
-use le_harness::router::{HybridRouter, RouteBudgets};
+use le_harness::router::{HybridRouter, RouteBudgets, RouteCapabilities};
 use le_harness::runtime::{AgentController, AgentLimits};
 use le_harness::settings::MistralSettings;
 use le_harness::tools::CodingTools;
@@ -37,6 +38,12 @@ enum Command {
         /// Query Mistral and verify the configured model identifiers.
         #[arg(long)]
         live: bool,
+        /// Probe a loopback OpenAI-compatible endpoint.
+        #[arg(long, requires = "local_model")]
+        local_base_url: Option<String>,
+        /// Exact local model identifier to verify.
+        #[arg(long, requires = "local_base_url")]
+        local_model: Option<String>,
     },
     /// Run one bounded coding-agent session.
     Run {
@@ -60,6 +67,21 @@ enum Command {
         /// JSON configuration for local stdio MCP servers.
         #[arg(long)]
         mcp_config: Option<PathBuf>,
+        /// Loopback OpenAI-compatible base URL ending in `/v1/`.
+        #[arg(long, requires = "local_model")]
+        local_base_url: Option<String>,
+        /// Exact local chat model identifier.
+        #[arg(long, requires = "local_base_url")]
+        local_model: Option<String>,
+        /// Exact local FIM model identifier; omission disables local FIM.
+        #[arg(long, requires = "local_base_url")]
+        local_fim_model: Option<String>,
+        /// Use no cloud clients or cloud fallbacks.
+        #[arg(long, requires = "local_base_url")]
+        local_only: bool,
+        /// Declare that the local endpoint does not support tool calling.
+        #[arg(long, requires = "local_base_url")]
+        local_without_tools: bool,
     },
     /// Run a repeatable evaluation manifest.
     Eval {
@@ -112,6 +134,32 @@ enum ReportFormat {
     Markdown,
 }
 
+struct LocalCliConfig {
+    base_url: Option<String>,
+    model: Option<String>,
+    fim_model: Option<String>,
+    only: bool,
+    tool_calling: bool,
+}
+
+struct RunConfig {
+    prompt: String,
+    root: PathBuf,
+    mode: CliMode,
+    execution: CliExecution,
+    image: String,
+    json: bool,
+    mcp_config: Option<PathBuf>,
+    local: LocalCliConfig,
+}
+
+struct RoutedModels {
+    planner: Arc<dyn ModelAdapter>,
+    fim: Arc<dyn ModelAdapter>,
+    utility: Arc<dyn ModelAdapter>,
+    labels: [String; 3],
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -120,7 +168,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     match Cli::parse().command {
-        Some(Command::Doctor { live }) => doctor(live).await?,
+        Some(Command::Doctor {
+            live,
+            local_base_url,
+            local_model,
+        }) => doctor(live, local_base_url, local_model).await?,
         Some(Command::Run {
             prompt,
             root,
@@ -129,7 +181,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             image,
             json,
             mcp_config,
-        }) => run(prompt, root, mode, execution, image, json, mcp_config).await?,
+            local_base_url,
+            local_model,
+            local_fim_model,
+            local_only,
+            local_without_tools,
+        }) => {
+            run(RunConfig {
+                prompt,
+                root,
+                mode,
+                execution,
+                image,
+                json,
+                mcp_config,
+                local: LocalCliConfig {
+                    base_url: local_base_url,
+                    model: local_model,
+                    fim_model: local_fim_model,
+                    only: local_only,
+                    tool_calling: !local_without_tools,
+                },
+            })
+            .await?
+        }
         Some(Command::Eval {
             manifest,
             mode,
@@ -160,7 +235,11 @@ fn evaluate(
     Ok(())
 }
 
-async fn doctor(live: bool) -> Result<(), Box<dyn std::error::Error>> {
+async fn doctor(
+    live: bool,
+    local_base_url: Option<String>,
+    local_model: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let diagnostic = MistralSettings::diagnostic();
     println!("Le Harness {}", env!("CARGO_PKG_VERSION"));
     println!(
@@ -211,18 +290,38 @@ async fn doctor(live: bool) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    if let (Some(base_url), Some(model)) = (local_base_url, local_model) {
+        let adapter = LocalOpenAiAdapter::new(LocalModelConfig {
+            base_url,
+            chat_model: model.clone(),
+            fim_model: None,
+            api_key: std::env::var("LE_HARNESS_LOCAL_API_KEY").ok(),
+            tool_calling: true,
+        })?;
+        let models = adapter.list_models().await?;
+        println!(
+            "local model {model}: {}",
+            if models.contains(&model) {
+                "available"
+            } else {
+                "not returned by model discovery"
+            }
+        );
+    }
     Ok(())
 }
 
-async fn run(
-    prompt: String,
-    root: PathBuf,
-    mode: CliMode,
-    execution: CliExecution,
-    image: String,
-    json: bool,
-    mcp_config: Option<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let RunConfig {
+        prompt,
+        root,
+        mode,
+        execution,
+        image,
+        json,
+        mcp_config,
+        local,
+    } = config;
     if matches!(mode, CliMode::AutomatedSandbox) && matches!(execution, CliExecution::Native) {
         return Err("automated-sandbox mode requires --execution docker".into());
     }
@@ -243,28 +342,78 @@ async fn run(
         }
         CliExecution::Docker => Arc::new(DockerExecution::new(&root, image, limits)?),
     };
-    let settings = MistralSettings::from_env()?;
-    let planner = MistralAdapter::from_settings(&settings)?;
-    let fim_model = MistralAdapter::from_settings(&settings)?;
-    let utility = MistralAdapter::from_settings_with_chat(&settings, &settings.utility_model)?;
-    let model = Arc::new(HybridRouter::new(
-        planner,
-        fim_model,
-        utility,
-        [
-            settings.chat_model.clone(),
-            settings.fim_model.clone(),
-            settings.utility_model.clone(),
-        ],
-        RouteBudgets::default(),
-    ));
+    let local_adapter = match (&local.base_url, &local.model) {
+        (Some(base_url), Some(model)) => Some(LocalOpenAiAdapter::new(LocalModelConfig {
+            base_url: base_url.clone(),
+            chat_model: model.clone(),
+            fim_model: local.fim_model.clone(),
+            api_key: std::env::var("LE_HARNESS_LOCAL_API_KEY").ok(),
+            tool_calling: local.tool_calling,
+        })?),
+        (None, None) => None,
+        _ => return Err("both --local-base-url and --local-model are required".into()),
+    };
+    let routed = if local.only {
+        let adapter = local_adapter
+            .clone()
+            .ok_or("--local-only requires a configured local endpoint")?;
+        let label = local.model.clone().expect("validated local model");
+        RoutedModels {
+            planner: Arc::new(adapter.clone()),
+            fim: Arc::new(adapter.clone()),
+            utility: Arc::new(adapter),
+            labels: [
+                label.clone(),
+                local.fim_model.clone().unwrap_or_else(|| "disabled".into()),
+                label,
+            ],
+        }
+    } else {
+        let settings = MistralSettings::from_env()?;
+        let utility_label = local
+            .model
+            .clone()
+            .unwrap_or_else(|| settings.utility_model.clone());
+        let utility: Arc<dyn ModelAdapter> = match local_adapter {
+            Some(adapter) => Arc::new(adapter),
+            None => Arc::new(MistralAdapter::from_settings_with_chat(
+                &settings,
+                &settings.utility_model,
+            )?),
+        };
+        RoutedModels {
+            planner: Arc::new(MistralAdapter::from_settings(&settings)?),
+            fim: Arc::new(MistralAdapter::from_settings(&settings)?),
+            utility,
+            labels: [settings.chat_model, settings.fim_model, utility_label],
+        }
+    };
+    let model = Arc::new(
+        HybridRouter::new(
+            routed.planner,
+            routed.fim,
+            routed.utility,
+            routed.labels,
+            RouteBudgets::default(),
+        )
+        .capabilities(RouteCapabilities {
+            planner_tools: !local.only || local.tool_calling,
+            fim: !local.only || local.fim_model.is_some(),
+            utility_chat: true,
+            utility_tools: local.base_url.is_none() || local.tool_calling,
+        }),
+    );
     let fim = Arc::new(FimEditEngine::new(
         model.clone(),
         editor.clone(),
         512 * 1024,
     ));
     let mut tools = CodingTools::new(repository_tools, editor, backend).with_fim(fim);
-    let mut catalog = coding_tools();
+    let mut catalog = if local.only && !local.tool_calling {
+        Vec::new()
+    } else {
+        coding_tools()
+    };
     let mut effects = ToolEffects::default()
         .register("list_files", Effect::Read)
         .register("read_file", Effect::Read)
