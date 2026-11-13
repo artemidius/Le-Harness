@@ -2,4 +2,6 @@
 .DS_Store
 .env
 *.jsonl
+__pycache__/
+*.py[cod]
 

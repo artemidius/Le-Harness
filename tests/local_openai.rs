@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -38,6 +39,45 @@ fn start_server() -> Option<(Server, String)> {
         .ok()?;
     std::thread::sleep(Duration::from_millis(100));
     Some((Server(child), format!("http://127.0.0.1:{port}/v1/")))
+}
+
+fn binary() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_le-harness"))
+}
+
+#[test]
+fn local_only_cli_never_requests_a_mistral_key() {
+    let Some((_server, base_url)) = start_server() else {
+        return;
+    };
+    let sessions = tempfile::tempdir().unwrap();
+    let output = Command::new(binary())
+        .args([
+            "--no-input",
+            "run",
+            "answer locally",
+            "--mode",
+            "inspect",
+            "--json",
+            "--local-only",
+            "--local-base-url",
+            &base_url,
+            "--local-model",
+            "local-test",
+            "--session-dir",
+        ])
+        .arg(sessions.path())
+        .env_remove("MISTRAL_API_KEY")
+        .env("CI", "true")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "local-only run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Mistral API key"));
 }
 
 #[tokio::test]
