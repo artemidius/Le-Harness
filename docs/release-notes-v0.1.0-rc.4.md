@@ -1,4 +1,4 @@
-# Le Harness v0.1.0-rc.3
+# Le Harness v0.1.0-rc.4
 
 This release candidate adds secure interactive credentials and native package
 distribution to the existing Mistral-oriented agent runtime.
@@ -15,10 +15,11 @@ distribution to the existing Mistral-oriented agent runtime.
   verified binaries are packaged as `.deb` files and tested on Debian 12/13
   and Ubuntu 24.04/26.04.
 - The release manifest records every archive and Debian package with its size,
-  target, and SHA-256 digest.
-- A signed APT repository pipeline validates release manifests, publishes
-  expiring metadata and by-hash indexes, and rejects altered metadata,
-  unsigned repositories, and package checksum mismatches.
+  target, and SHA-256 digest. Asset names use a GitHub-safe representation while
+  the packages retain Debian-compliant internal versions.
+- A signed APT repository pipeline validates release manifests, retains the
+  newest complete preview and stable packages independently, publishes
+  expiring metadata and by-hash indexes, and rejects tampering.
 
 This is a prerelease. Native execution is not a sandbox, authenticated Mistral
 model access remains account-dependent, and the documented external validation
