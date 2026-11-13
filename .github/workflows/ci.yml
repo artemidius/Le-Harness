@@ -29,6 +29,7 @@ jobs:
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --all-features
       - run: cargo test --locked --all-features
+      - run: python3 -m unittest discover -s tests/release -p 'test_*.py'
 
   msrv:
     runs-on: ubuntu-24.04
