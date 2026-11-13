@@ -25,6 +25,7 @@ pub type ModelEventStream =
 pub struct ChatTurn {
     pub messages: Vec<Message>,
     pub tools: Vec<Tool>,
+    pub role: ModelRole,
 }
 
 impl ChatTurn {
@@ -32,8 +33,16 @@ impl ChatTurn {
         Self {
             messages: vec![Message::user(prompt.into())],
             tools: coding_tools(),
+            role: ModelRole::Planner,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelRole {
+    Planner,
+    Utility,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +68,11 @@ pub enum ModelEvent {
         completion_tokens: Option<u64>,
         total_tokens: Option<u64>,
     },
+    Routed {
+        role: String,
+        backend: String,
+        fallback: bool,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -69,6 +83,10 @@ pub enum ModelError {
     CompletionText(#[from] CompletionTextError),
     #[error("scripted model has no response for this request")]
     ScriptExhausted,
+    #[error("model route budget exhausted for {0}")]
+    RouteBudget(&'static str),
+    #[error("configured route lacks required capability: {0}")]
+    MissingCapability(&'static str),
 }
 
 #[async_trait]
@@ -76,6 +94,21 @@ pub trait ModelAdapter: Send + Sync {
     async fn list_models(&self) -> Result<Vec<String>, ModelError>;
     async fn stream_chat(&self, turn: ChatTurn) -> Result<ModelEventStream, ModelError>;
     async fn complete_fim(&self, prompt: String, suffix: String) -> Result<String, ModelError>;
+}
+
+#[async_trait]
+impl<T: ModelAdapter + ?Sized> ModelAdapter for Arc<T> {
+    async fn list_models(&self) -> Result<Vec<String>, ModelError> {
+        (**self).list_models().await
+    }
+
+    async fn stream_chat(&self, turn: ChatTurn) -> Result<ModelEventStream, ModelError> {
+        (**self).stream_chat(turn).await
+    }
+
+    async fn complete_fim(&self, prompt: String, suffix: String) -> Result<String, ModelError> {
+        (**self).complete_fim(prompt, suffix).await
+    }
 }
 
 #[derive(Clone)]
@@ -93,6 +126,15 @@ impl MistralAdapter {
             chat_model: settings.chat_model.clone(),
             fim_model: settings.fim_model.clone(),
         })
+    }
+
+    pub fn from_settings_with_chat(
+        settings: &MistralSettings,
+        chat_model: impl Into<String>,
+    ) -> Result<Self, ModelError> {
+        let mut adapter = Self::from_settings(settings)?;
+        adapter.chat_model = chat_model.into();
+        Ok(adapter)
     }
 }
 

@@ -164,6 +164,7 @@ where
                 .stream_chat(ChatTurn {
                     messages: context.messages,
                     tools: coding_tools(),
+                    role: crate::model::ModelRole::Planner,
                 })
                 .await;
             let mut stream = match response {
@@ -193,6 +194,18 @@ where
                         });
                     }
                 };
+                if let ModelEvent::Routed {
+                    role,
+                    backend,
+                    fallback,
+                } = &event
+                {
+                    state.record(
+                        "model.routed",
+                        serde_json::json!({"role":role,"backend":backend,"fallback":fallback}),
+                    );
+                    continue;
+                }
                 if let Err(message) = turn.push(event, self.limits.max_output_bytes) {
                     return state.finish(AgentStatus::Failed { message });
                 }
@@ -345,6 +358,7 @@ impl TurnAccumulator {
                 set_consistent(&mut self.finish_reason, Some(reason), "finish reason")?;
             }
             ModelEvent::Usage { .. } => {}
+            ModelEvent::Routed { .. } => {}
         }
         Ok(())
     }
