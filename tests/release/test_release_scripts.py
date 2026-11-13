@@ -21,6 +21,7 @@ def load(name: str):
 
 validate_release = load("validate_release")
 assemble_manifest = load("assemble_manifest")
+render_homebrew_formula = load("render_homebrew_formula")
 
 
 class ValidateReleaseTests(unittest.TestCase):
@@ -72,6 +73,87 @@ class AssembleManifestTests(unittest.TestCase):
             "le-harness_0.1.0-rc.4-1_amd64.deb",
         )
         self.assertEqual(assemble_manifest.debian_version("0.1.0"), "0.1.0-1")
+
+
+class RenderHomebrewFormulaTests(unittest.TestCase):
+    def fixture(self, directory: pathlib.Path, version: str = "1.2.3-rc.4") -> pathlib.Path:
+        artifacts = []
+        for target in render_homebrew_formula.TARGETS:
+            name = f"le-harness-v{version}-{target}.tar.gz"
+            asset = directory / name
+            asset.write_bytes(target.encode())
+            artifacts.append(
+                {
+                    "kind": "archive",
+                    "name": name,
+                    "target": target,
+                    "size": asset.stat().st_size,
+                    "sha256": render_homebrew_formula.digest(asset),
+                }
+            )
+        manifest = directory / "release-manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "tag": f"v{version}",
+                    "version": version,
+                    "channel": "preview" if "-" in version else "stable",
+                    "source_commit": "a" * 40,
+                    "artifacts": artifacts,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return manifest
+
+    def test_verified_manifest_renders_immutable_urls_and_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            manifest = self.fixture(directory)
+            version, archives = render_homebrew_formula.load_archives(manifest, directory)
+            formula = render_homebrew_formula.render(version, archives)
+
+            self.assertIn("releases/download/v1.2.3-rc.4", formula)
+            for artifact in archives.values():
+                self.assertIn(str(artifact["sha256"]), formula)
+
+    def test_tampered_asset_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            manifest = self.fixture(directory)
+            asset = next(directory.glob("*.tar.gz"))
+            asset.write_bytes(b"changed bytes")
+
+            with self.assertRaisesRegex(ValueError, "mismatch"):
+                render_homebrew_formula.load_archives(manifest, directory)
+
+    def test_missing_target_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            manifest = self.fixture(directory)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["artifacts"].pop()
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "missing Homebrew targets"):
+                render_homebrew_formula.load_archives(manifest, directory)
+
+    def test_release_ordering_prevents_rollback(self) -> None:
+        version = render_homebrew_formula.Version.parse
+        self.assertLess(version("1.2.3-rc.4"), version("1.2.3"))
+        self.assertLess(version("1.2.3-rc.4"), version("1.2.3-rc.10"))
+        self.assertLess(version("1.2.3"), version("1.3.0-rc.1"))
+
+    def test_current_formula_requires_one_consistent_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            formula = pathlib.Path(temporary) / "le-harness.rb"
+            formula.write_text(
+                'url "https://github.com/artemidius/Le-Harness/releases/download/'
+                'v1.2.3/le-harness-v1.2.3-aarch64-apple-darwin.tar.gz"\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(render_homebrew_formula.current_version(formula), "1.2.3")
 
 
 if __name__ == "__main__":
