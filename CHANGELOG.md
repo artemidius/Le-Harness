@@ -4,6 +4,8 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+- Reworked interactive approvals into a readable terminal layout with file
+  diffs or structured action details instead of escaped JSON arguments.
 - Completed the file lifecycle with snapshot-aware reads, binary metadata,
   nested file creation, unique-text and full-file replacement, hash-guarded
   deletion, approval previews, and structured mutation events.
