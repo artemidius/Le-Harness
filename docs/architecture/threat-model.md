@@ -21,6 +21,10 @@ Le Harness processes untrusted repository content, model output, command output,
   repository configuration or session journals;
 - event and diagnostic output excludes content by default;
 - stale file snapshots prevent blind overwrites.
+- file mutations reject parent traversal, symlinked path components, and
+  non-regular deletion targets;
+- assisted approvals show a bounded change preview while remaining bound to
+  the exact mutation arguments.
 
 A Git worktree separates changes but is not a security sandbox. Container isolation, when available, is a separate execution backend with explicit mounts and network policy.
 

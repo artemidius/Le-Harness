@@ -63,6 +63,7 @@ pub struct ToolInvocation {
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
+    pub metadata: Option<serde_json::Value>,
 }
 
 impl ToolResult {
@@ -70,6 +71,15 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error: false,
+            metadata: None,
+        }
+    }
+
+    pub fn success_with_metadata(content: impl Into<String>, metadata: serde_json::Value) -> Self {
+        Self {
+            content: content.into(),
+            is_error: false,
+            metadata: Some(metadata),
         }
     }
 
@@ -77,12 +87,20 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error: true,
+            metadata: None,
         }
     }
 }
 
 #[async_trait]
 pub trait ToolHandler: Send + Sync {
+    async fn approval_preview(
+        &self,
+        _invocation: &ToolInvocation,
+    ) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
     async fn execute(&self, invocation: &ToolInvocation) -> ToolResult;
 }
 
@@ -149,7 +167,7 @@ where
     ) -> AgentRun {
         let mut messages = if history.is_empty() {
             vec![Message::system(
-                "You are Le Harness, a coding agent working in a repository. You can write code directly in your reply. When the user asks for an algorithm or code without specifying a file, provide working code in the reply; do not claim you cannot write code. When the user asks you to create a file, use create_file. For edits to existing files, inspect them first and use the available edit tools. Use the available tools to inspect relevant files before answering questions about the repository. Never claim to have read a file that you have not inspected. Continue useful work with available tools before asking for missing context. Follow the user's instructions and the tool permission policy.",
+                "You are Le Harness, a coding agent working in a repository. You can write code directly in your reply. When the user asks for code without specifying a file, provide working code in the reply. When the user asks you to create, change, or delete files, use the file tools and continue until the requested work is complete. Read an existing file first and pass its exact sha256 to every change or deletion. Prefer replace_text for a unique localized change, replace_file for a complete rewrite, and fim_replace_span only when FIM is useful. Never claim a file operation succeeded unless its tool result says it succeeded. Use the available tools to inspect relevant files before answering questions about the repository. Never claim to have read a file that you have not inspected. Continue useful work with available tools before asking for missing context. Follow the user's instructions and the tool permission policy.",
             )]
         } else {
             history.to_vec()
@@ -290,7 +308,12 @@ where
                 let result = self.tools.execute(&tool).await;
                 state.record(
                     "tool.completed",
-                    serde_json::json!({"id":&tool.id,"is_error":result.is_error}),
+                    serde_json::json!({
+                        "id":&tool.id,
+                        "name":&tool.name,
+                        "is_error":result.is_error,
+                        "operation":result.metadata
+                    }),
                 );
                 state
                     .messages
@@ -464,7 +487,10 @@ mod tests {
     #[async_trait]
     impl ToolHandler for EchoTool {
         async fn execute(&self, invocation: &ToolInvocation) -> ToolResult {
-            ToolResult::success(format!("{}:{}", invocation.name, invocation.arguments))
+            ToolResult::success_with_metadata(
+                format!("{}:{}", invocation.name, invocation.arguments),
+                serde_json::json!({"type":"test","path":"README.md"}),
+            )
         }
     }
 
@@ -557,6 +583,13 @@ mod tests {
         );
         assert_eq!(run.tool_calls, 1);
         assert_eq!(run.model_requests, 2);
+        let completed = run
+            .events
+            .iter()
+            .find(|event| event.kind == "tool.completed")
+            .unwrap();
+        assert_eq!(completed.payload["operation"]["type"], "test");
+        assert_eq!(completed.payload["operation"]["path"], "README.md");
     }
 
     #[tokio::test]

@@ -289,7 +289,12 @@ pub fn coding_tools() -> Vec<Tool> {
         ),
         tool(
             "read_file",
-            "Read a UTF-8 repository file",
+            "Read a UTF-8 repository file and return its content, size, and sha256 snapshot",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}),
+        ),
+        tool(
+            "file_metadata",
+            "Return size, sha256, and UTF-8 status for a regular repository file without returning its content",
             serde_json::json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}),
         ),
         tool(
@@ -299,8 +304,18 @@ pub fn coding_tools() -> Vec<Tool> {
         ),
         tool(
             "create_file",
-            "Create a new UTF-8 file in the workspace without overwriting an existing path. Use only when the user asks to save code to a file; otherwise provide code in the reply.",
+            "Create a new UTF-8 file and missing parent directories without overwriting an existing path",
             serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}),
+        ),
+        tool(
+            "replace_text",
+            "Replace text that occurs exactly once in a UTF-8 file using the sha256 returned by read_file",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","expected_sha256","old_text","new_text"],"additionalProperties":false}),
+        ),
+        tool(
+            "replace_file",
+            "Replace an entire UTF-8 file using the sha256 returned by read_file",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"content":{"type":"string"}},"required":["path","expected_sha256","content"],"additionalProperties":false}),
         ),
         tool(
             "replace_span",
@@ -311,6 +326,11 @@ pub fn coding_tools() -> Vec<Tool> {
             "fim_replace_span",
             "Fill a verified code span using Codestral FIM",
             serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"},"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":0},"fallback_replacement":{"type":"string"}},"required":["path","expected_sha256","start","end"],"additionalProperties":false}),
+        ),
+        tool(
+            "delete_file",
+            "Delete a regular file using the sha256 returned by read_file or file_metadata",
+            serde_json::json!({"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string"}},"required":["path","expected_sha256"],"additionalProperties":false}),
         ),
         tool(
             "run_command",
