@@ -4,6 +4,8 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.10 - 2026-11-15
+
 - Added an approval-gated `create_file` tool that publishes new files without
   overwriting existing paths.
 - Clarified that code requested without a filename belongs in the chat reply.

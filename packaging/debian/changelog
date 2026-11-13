@@ -1,3 +1,9 @@
+le-harness (0.1.0~rc.10-1) unstable; urgency=medium
+
+  * Answer code requests directly and create new files with approval.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Sat, 14 Nov 2026 23:09:15 +0000
+
 le-harness (0.1.0~rc.9-1) unstable; urgency=medium
 
   * Save cloud model choices and allow in-chat model switching.
