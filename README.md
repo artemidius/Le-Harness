@@ -9,10 +9,11 @@ The current version is a release candidate, not a production release.
 
 ## Provider configuration
 
-Le Harness uses the tagged Le Rust SDK for native Mistral model discovery, streamed chat, and FIM completions. Configure the provider without placing credentials in repository files:
+Le Harness uses the tagged Le Rust SDK for native Mistral model discovery,
+streamed chat, and FIM completions. Model IDs stay explicit because availability
+varies by account:
 
 ```text
-export MISTRAL_API_KEY=...
 export LE_HARNESS_CHAT_MODEL=...
 export LE_HARNESS_FIM_MODEL=...
 # Optional; defaults to LE_HARNESS_CHAT_MODEL
@@ -20,7 +21,11 @@ export LE_HARNESS_UTILITY_MODEL=...
 le-harness doctor --live
 ```
 
-`doctor` reports whether credentials are present but never prints their value. Model identifiers stay explicit because availability varies by account.
+When `MISTRAL_API_KEY` is not set, an interactive cloud command asks once for
+hidden input and keeps the key only for that process. Automation should export
+the variable and pass `--no-input`; JSON and recognized CI contexts never wait
+for a prompt. `doctor` reports whether an environment credential is present but
+never prints its value.
 
 ## Run a session
 
