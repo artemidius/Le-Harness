@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "name": "transaction smoke fixtures",
+  "cases": [
+    {
+      "id": "rust-rename",
+      "expected_output": "fn renamed() {}\n",
+      "conventional_output": "fn renamed() {}\n",
+      "fim_output": "fn renamed() {}\n"
+    },
+    {
+      "id": "preserve-crlf",
+      "expected_output": "one\r\nTWO\r\n",
+      "conventional_output": "one\nTWO\n",
+      "fim_output": "one\r\nTWO\r\n"
+    },
+    {
+      "id": "bounded-middle",
+      "expected_output": "let value = 42;\n",
+      "conventional_output": "let value = 42;\n",
+      "fim_output": "let value = 42;\n"
+    }
+  ]
+}
