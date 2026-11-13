@@ -17,5 +17,6 @@ pub mod runtime;
 pub mod session;
 pub mod settings;
 pub mod tools;
+pub mod tui;
 
 pub const EVENT_SCHEMA_VERSION: u16 = 1;
