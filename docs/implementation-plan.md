@@ -5,8 +5,8 @@ Le Harness is delivered through eighteen sequential pull requests. Each PR is re
 | ID | Scope | Status |
 | --- | --- | --- |
 | H00 | Scope, contracts, and repository foundation | Complete ([#1](https://github.com/artemidius/Le-Harness/pull/1)) |
-| H01 | Le Rust integration and provider compatibility | In progress |
-| H02 | Session controller and bounded agent loop | Planned |
+| H01 | Le Rust integration and provider compatibility | Complete ([#2](https://github.com/artemidius/Le-Harness/pull/2); live gate open) |
+| H02 | Session controller and bounded agent loop | Complete ([#3](https://github.com/artemidius/Le-Harness/pull/3)) |
 | H03 | Repository discovery and read tools | Planned |
 | H04 | Permission policy and approval flow | Planned |
 | H05 | Command execution and isolation | Planned |
