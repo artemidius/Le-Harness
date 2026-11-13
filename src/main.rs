@@ -10,7 +10,8 @@ use le_harness::edit::WorkspaceEditor;
 use le_harness::eval::{EvalManifest, EvalMode};
 use le_harness::execution::{DockerExecution, ExecutionBackend, ExecutionLimits, NativeExecution};
 use le_harness::fim::FimEditEngine;
-use le_harness::model::{MistralAdapter, ModelAdapter};
+use le_harness::mcp::{McpConfig, McpManager};
+use le_harness::model::{MistralAdapter, ModelAdapter, coding_tools};
 use le_harness::policy::{
     ApprovalBinding, ApprovalRequest, ApprovalStore, Approver, Effect,
     InteractivePolicyToolHandler, PermissionMode, PermissionPolicy, ToolEffects,
@@ -56,6 +57,9 @@ enum Command {
         /// Emit one JSON result instead of human-readable output.
         #[arg(long)]
         json: bool,
+        /// JSON configuration for local stdio MCP servers.
+        #[arg(long)]
+        mcp_config: Option<PathBuf>,
     },
     /// Run a repeatable evaluation manifest.
     Eval {
@@ -124,7 +128,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             execution,
             image,
             json,
-        }) => run(prompt, root, mode, execution, image, json).await?,
+            mcp_config,
+        }) => run(prompt, root, mode, execution, image, json, mcp_config).await?,
         Some(Command::Eval {
             manifest,
             mode,
@@ -216,6 +221,7 @@ async fn run(
     execution: CliExecution,
     image: String,
     json: bool,
+    mcp_config: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if matches!(mode, CliMode::AutomatedSandbox) && matches!(execution, CliExecution::Native) {
         return Err("automated-sandbox mode requires --execution docker".into());
@@ -257,14 +263,28 @@ async fn run(
         editor.clone(),
         512 * 1024,
     ));
-    let tools = CodingTools::new(repository_tools, editor, backend).with_fim(fim);
-    let effects = ToolEffects::default()
+    let mut tools = CodingTools::new(repository_tools, editor, backend).with_fim(fim);
+    let mut catalog = coding_tools();
+    let mut effects = ToolEffects::default()
         .register("list_files", Effect::Read)
         .register("read_file", Effect::Read)
         .register("search", Effect::Read)
         .register("replace_span", Effect::Write)
         .register("fim_replace_span", Effect::Write)
         .register("run_command", Effect::Execute);
+    if let Some(path) = mcp_config {
+        let config: McpConfig = serde_json::from_slice(&std::fs::read(path)?)?;
+        let manager = Arc::new(McpManager::new(
+            config,
+            std::time::Duration::from_secs(30),
+            2 * 1024 * 1024,
+        ));
+        for discovered in manager.discover().await? {
+            effects = effects.register(&discovered.qualified_name, discovered.effect);
+            catalog.push(discovered.model_tool());
+        }
+        tools = tools.with_mcp(manager);
+    }
     let approvals = ApprovalStore::default();
     let policy = PermissionPolicy::new(mode.into(), approvals.clone());
     let tools = InteractivePolicyToolHandler::new(
@@ -274,7 +294,8 @@ async fn run(
         approvals,
         ConsoleApprover { enabled: !json },
     );
-    let controller = AgentController::new(model, tools, AgentLimits::default());
+    let controller =
+        AgentController::new(model, tools, AgentLimits::default()).with_tool_catalog(catalog);
     let cancellation = controller.cancellation_token();
     let operation = controller.run(prompt);
     tokio::pin!(operation);
