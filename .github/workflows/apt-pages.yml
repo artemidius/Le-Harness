@@ -1,0 +1,112 @@
+name: Publish APT repository
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag; blank selects the latest release
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apt-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    environment: apt-signing
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      suite: ${{ steps.snapshot.outputs.suite }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install repository tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends apt-utils dpkg-dev gnupg
+      - id: release
+        name: Select a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${EVENT_TAG:-${REQUESTED_TAG:-}}"
+          if test -z "$tag"; then
+            tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts \
+              --limit 1 --json tagName --jq '.[0].tagName')"
+          fi
+          test "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Download immutable release inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir downloaded
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern release-manifest.json \
+            --pattern 'le-harness_*.deb' \
+            --dir downloaded
+      - id: snapshot
+        name: Validate release manifest and package bytes
+        run: |
+          python3 scripts/apt/prepare_snapshot.py \
+            --directory downloaded \
+            --output prepared \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Import protected signing subkey
+        env:
+          APT_SIGNING_SUBKEY: ${{ secrets.APT_SIGNING_SUBKEY }}
+          APT_SIGNING_PASSPHRASE: ${{ secrets.APT_SIGNING_PASSPHRASE }}
+        run: |
+          export GNUPGHOME="$RUNNER_TEMP/apt-gnupg"
+          install -d -m 0700 "$GNUPGHOME"
+          printf '%s' "$APT_SIGNING_SUBKEY" | gpg --batch --import
+          printf '%s' "$APT_SIGNING_PASSPHRASE" > "$RUNNER_TEMP/apt-passphrase"
+          chmod 0600 "$RUNNER_TEMP/apt-passphrase"
+          fingerprint="$(cat packaging/apt/SIGNING-KEY-FINGERPRINT)"
+          gpg --batch --list-secret-keys "$fingerprint"
+      - name: Build signed repository site
+        env:
+          GNUPGHOME: ${{ runner.temp }}/apt-gnupg
+        run: |
+          fingerprint="$(cat packaging/apt/SIGNING-KEY-FINGERPRINT)"
+          mkdir site
+          SOURCE_DATE_EPOCH="$(date +%s)" python3 scripts/apt/build_repository.py \
+            --output site/apt \
+            --suite "${{ steps.snapshot.outputs.suite }}=prepared/${{ steps.snapshot.outputs.suite }}" \
+            --architectures amd64,arm64 \
+            --signing-key "$fingerprint" \
+            --passphrase-file "$RUNNER_TEMP/apt-passphrase" \
+            --valid-days 30 \
+            --max-bytes 200000000
+          test "$(cat site/apt/SIGNING-KEY-FINGERPRINT)" = "$fingerprint"
+          gpg --batch --verify \
+            "site/apt/dists/${{ steps.snapshot.outputs.suite }}/InRelease"
+          cp docs/install/apt.html site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

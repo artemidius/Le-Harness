@@ -149,12 +149,25 @@ def write_release(
     return release
 
 
-def sign_release(release: pathlib.Path, signing_key: str) -> None:
+def sign_release(
+    release: pathlib.Path,
+    signing_key: str,
+    passphrase_file: pathlib.Path | None = None,
+) -> None:
     run("gpg", "--batch", "--list-secret-keys", signing_key)
+    passphrase_arguments = []
+    if passphrase_file is not None:
+        passphrase_arguments = [
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase-file",
+            str(passphrase_file),
+        ]
     run(
         "gpg",
         "--batch",
         "--yes",
+        *passphrase_arguments,
         "--local-user",
         signing_key,
         "--digest-algo",
@@ -168,6 +181,7 @@ def sign_release(release: pathlib.Path, signing_key: str) -> None:
         "gpg",
         "--batch",
         "--yes",
+        *passphrase_arguments,
         "--local-user",
         signing_key,
         "--digest-algo",
@@ -212,6 +226,7 @@ def build(arguments: argparse.Namespace) -> None:
         sign_release(
             write_release(output, suite, architectures, generated, valid_until),
             arguments.signing_key,
+            arguments.passphrase_file,
         )
 
     fingerprint = signing_fingerprint(arguments.signing_key)
@@ -257,9 +272,15 @@ def main() -> int:
     parser.add_argument("--suite", action="append", type=parse_suite, required=True)
     parser.add_argument("--architectures", default="amd64,arm64")
     parser.add_argument("--signing-key", required=True)
+    parser.add_argument("--passphrase-file", type=pathlib.Path)
     parser.add_argument("--valid-days", type=int, default=30)
     parser.add_argument("--max-bytes", type=int, default=200 * 1024 * 1024)
     arguments = parser.parse_args()
+
+    if arguments.passphrase_file is not None:
+        arguments.passphrase_file = arguments.passphrase_file.resolve()
+        if not arguments.passphrase_file.is_file():
+            parser.error("--passphrase-file must name an existing file")
     if arguments.valid_days < 1:
         parser.error("--valid-days must be positive")
 
