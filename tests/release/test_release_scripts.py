@@ -31,8 +31,8 @@ class ValidateReleaseTests(unittest.TestCase):
             version = tomllib.load(source)["package"]["version"]
         result = validate_release.validate(ROOT, f"v{version}")
         self.assertEqual(result["version"], version)
-        self.assertEqual(result["channel"], "preview")
-        self.assertTrue(result["prerelease"])
+        self.assertEqual(result["channel"], "preview" if "-" in version else "stable")
+        self.assertEqual(result["prerelease"], "-" in version)
 
     def test_mismatched_tag_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "does not match"):
