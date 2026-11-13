@@ -4,7 +4,7 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
-## 0.1.0-rc.3 - 2026-11-13
+## 0.1.0-rc.4 - 2026-11-14
 
 - Added hidden, session-only Mistral API-key input for interactive cloud
   commands while preserving fail-fast noninteractive behavior.
@@ -12,6 +12,8 @@ All notable changes to Le Harness are documented here.
   native packages, and cross-distribution installation tests.
 - Added a signed APT repository pipeline with expiring metadata, by-hash
   indexes, protected signing, tamper tests, and package-scoped setup guidance.
+- Added manifest-gated per-channel APT retention and release-asset filenames
+  that remain unchanged when uploaded to GitHub.
 
 ## 0.1.0-rc.2 - 2026-11-13
 

@@ -25,8 +25,8 @@ assemble_manifest = load("assemble_manifest")
 
 class ValidateReleaseTests(unittest.TestCase):
     def test_current_package_metadata_is_consistent(self) -> None:
-        result = validate_release.validate(ROOT, "v0.1.0-rc.3")
-        self.assertEqual(result["version"], "0.1.0-rc.3")
+        result = validate_release.validate(ROOT, "v0.1.0-rc.4")
+        self.assertEqual(result["version"], "0.1.0-rc.4")
         self.assertEqual(result["channel"], "preview")
         self.assertTrue(result["prerelease"])
 
@@ -44,7 +44,7 @@ class AssembleManifestTests(unittest.TestCase):
                     target.encode()
                 )
             for target, architecture in assemble_manifest.DEBIAN_ARCHITECTURES.items():
-                (directory / f"le-harness_1.2.3-1_{architecture}.deb").write_bytes(
+                (directory / assemble_manifest.debian_asset_name("1.2.3", architecture)).write_bytes(
                     target.encode()
                 )
 
@@ -64,6 +64,12 @@ class AssembleManifestTests(unittest.TestCase):
     def test_debian_prerelease_versions_sort_before_stable(self) -> None:
         self.assertEqual(
             assemble_manifest.debian_version("0.1.0-rc.3"), "0.1.0~rc.3-1"
+        )
+
+    def test_debian_release_asset_name_is_not_rewritten_by_github(self) -> None:
+        self.assertEqual(
+            assemble_manifest.debian_asset_name("0.1.0-rc.4", "amd64"),
+            "le-harness_0.1.0-rc.4-1_amd64.deb",
         )
         self.assertEqual(assemble_manifest.debian_version("0.1.0"), "0.1.0-1")
 
