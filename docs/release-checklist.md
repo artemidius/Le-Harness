@@ -1,4 +1,4 @@
-# Release checklist: v0.1.0-rc.1
+# Release checklist: v0.1.0-rc.2
 
 ## Deterministic gates
 
