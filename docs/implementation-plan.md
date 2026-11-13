@@ -9,7 +9,7 @@ Le Harness is delivered through eighteen sequential pull requests. Each PR is re
 | H02 | Session controller and bounded agent loop | Complete ([#3](https://github.com/artemidius/Le-Harness/pull/3)) |
 | H03 | Repository discovery and read tools | Complete ([#4](https://github.com/artemidius/Le-Harness/pull/4)) |
 | H04 | Permission policy and approval flow | Complete ([#5](https://github.com/artemidius/Le-Harness/pull/5)) |
-| H05 | Command execution and isolation | Planned |
+| H05 | Command execution and isolation | Complete ([#6](https://github.com/artemidius/Le-Harness/pull/6)) |
 | H06 | Conventional edit transactions | Planned |
 | H07 | Usable CLI and Git workflow | Planned |
 | H08 | Codestral FIM editing | Planned |
