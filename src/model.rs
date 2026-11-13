@@ -40,7 +40,7 @@ pub enum ModelEvent {
     },
     ToolCallDelta {
         choice: usize,
-        index: usize,
+        index: Option<usize>,
         id: Option<String>,
         name: Option<String>,
         arguments: Option<String>,
@@ -151,7 +151,7 @@ fn chunk_events(chunk: le_rust::chat::CompletionChunk) -> Vec<ModelEvent> {
             let function = tool.function;
             events.push(ModelEvent::ToolCallDelta {
                 choice: choice.index,
-                index: tool.index.unwrap_or(0),
+                index: tool.index,
                 id: tool.id,
                 name: function.as_ref().and_then(|value| value.name.clone()),
                 arguments: function
