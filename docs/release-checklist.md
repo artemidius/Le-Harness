@@ -1,4 +1,4 @@
-# Release checklist: v0.1.0-rc.5
+# Release checklist: v0.1.0-rc.6
 
 ## Deterministic gates
 
@@ -13,6 +13,9 @@
 - [x] Release asset names round-trip through GitHub without normalization.
 - [x] Hidden credential PTY and noninteractive fail-fast tests.
 - [x] Capability-aware chat/FIM model picker and selected-request PTY test.
+- [x] Native credential-store save/reuse/error coverage and management commands.
+- [x] Two-turn Mistral tool-call replay with function name and call ID.
+- [x] Failed agent sessions return a non-zero process status with safe diagnostics.
 - [x] Public APT installs on Debian 12 ARM64 and Ubuntu 24.04 amd64.
 - [x] Public Homebrew formula matrix on macOS ARM64 and Linux amd64/arm64.
 - [x] Idempotent, manifest-driven Homebrew update workflow with scoped tap access.
