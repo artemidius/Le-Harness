@@ -4,6 +4,9 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+- Saved selected Mistral chat and FIM models for later starts and added
+  `/model` to switch models during a chat without clearing its history.
+
 ## 0.1.0-rc.8 - 2026-11-14
 
 - Started an interactive repository chat with `le-harness` or an initial
