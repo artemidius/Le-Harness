@@ -8,7 +8,7 @@
   choices, restart without a picker, and hidden credential input.
 - [x] Version, lockfile, Debian changelog, manual, installation guide,
   changelog, and release notes agree.
-- [ ] Rust 1.88, Debian package, and signed APT repository CI checks pass.
+- [x] Rust 1.88, Debian package, and signed APT repository CI checks pass.
 
 ## Publication gates
 
