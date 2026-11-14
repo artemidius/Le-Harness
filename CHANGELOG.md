@@ -4,6 +4,15 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+- Added native OS credential storage with deterministic environment, saved-key,
+  and hidden-prompt precedence plus `auth login`, `auth status`, and
+  `auth logout` management commands.
+- Added `--no-credential-store` for explicitly ephemeral interactive keys.
+- Fixed Mistral tool-result messages to include the called function name, as
+  required when continuing a native tool-calling conversation.
+- Made terminal agent failures return a non-zero exit status and print the
+  redacted provider error instead of showing only `status: failed`.
+
 ## 0.1.0-rc.5 - 2026-11-14
 
 - Added interactive, account-backed chat and FIM model selection when cloud

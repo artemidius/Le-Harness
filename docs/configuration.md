@@ -1,13 +1,14 @@
 # Configuration reference
 
 Le Harness accepts Mistral credentials and model IDs from the process
-environment or an interactive setup dialog. Prompted values live only for the
-current process. It does not save them, mutate the environment, or load a
-repository `.env` file.
+environment or an interactive setup dialog. A prompted API key is saved in the
+operating system credential store and reused; prompted model selections remain
+scoped to the current process. Le Harness does not mutate the environment or
+load a repository `.env` file.
 
 | Setting | Purpose | Required |
 | --- | --- | --- |
-| `MISTRAL_API_KEY` | Mistral authentication; otherwise ask in an interactive terminal | Cloud runs and `doctor --live` |
+| `MISTRAL_API_KEY` | Mistral authentication override; otherwise reuse the saved key or ask in an interactive terminal | Cloud runs and `doctor --live` |
 | `LE_HARNESS_CHAT_MODEL` | Planner/chat model ID; otherwise discover and ask interactively | Cloud runs |
 | `LE_HARNESS_FIM_MODEL` | Codestral-compatible FIM model ID; otherwise discover and ask interactively | Cloud runs |
 | `LE_HARNESS_UTILITY_MODEL` | Utility model ID | Optional; defaults to chat |
@@ -29,6 +30,19 @@ than approved.
 `--json`, a truthy `CI` environment variable, or a missing input/diagnostic
 terminal also disables credential prompting. Local-only runs never request a
 Mistral key.
+
+Credential resolution is deterministic: a non-empty `MISTRAL_API_KEY` takes
+precedence, followed by the saved OS credential, followed by a hidden terminal
+prompt. Environment keys are not saved automatically. Manage the stored key
+with `le-harness auth login`, `le-harness auth status`, and
+`le-harness auth logout`. Pass the global `--no-credential-store` flag to skip
+both loading and saving for an explicitly ephemeral invocation.
+
+The native store is macOS Keychain on macOS, Credential Manager on Windows, and
+a Secret Service-backed user keyring on Linux. A headless Linux environment
+without an available Secret Service may not support persistent storage. A store
+failure is reported without printing the key; a newly entered key can still be
+used for that process.
 
 Permission modes are `inspect`, `assisted`, and `automated-sandbox`. Inspect is
 read-only. Assisted requires an exact interactive approval for every mutation,

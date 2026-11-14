@@ -10,7 +10,7 @@
 | Routing | capability, budget, and fallback event tests | configured cloud/local models |
 | MCP | stdio discovery/call fixture and effect rejection | selected third-party server |
 | Local inference | loopback discovery, stream, and FIM protocol fixture | Ollama/vLLM model behavior |
-| Interactive cloud setup | Unix PTY key echo/cancel/restore test, account-backed chat/FIM picker, selected request model assertion, loopback Authorization assertion, noninteractive fail-fast tests | Windows console acceptance check |
+| Interactive cloud setup | secure-store precedence/save/error unit tests; Unix PTY key echo/cancel/restore test; account-backed chat/FIM picker; named tool-result replay; selected request model assertion; loopback Authorization assertion; noninteractive fail-fast tests | native store acceptance on each packaged OS; Windows console acceptance check |
 | Debian package | Native amd64/arm64 build, metadata/Lintian, install/upgrade/remove/purge on Debian 12/13 and Ubuntu 24.04/26.04 | none for advertised targets |
 | APT repository | disposable-key install plus altered/unsigned metadata and package-hash rejection; public HTTPS installs on Debian 12 ARM64 and Ubuntu 24.04 amd64 | none for advertised targets |
 | Homebrew | public-tap formula style/audit/install/test/uninstall on macOS ARM64 and Linux amd64/arm64 | none for advertised targets |
