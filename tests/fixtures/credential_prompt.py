@@ -17,8 +17,8 @@ import time
 
 
 PROMPT = b"Mistral API key (hidden; saved in OS credential store): "
-CHAT_PROMPT = b"Select a Mistral chat model for this process:"
-FIM_PROMPT = b"Select a Mistral FIM model for this process:"
+CHAT_PROMPT = b"Select a Mistral chat model for this chat:"
+FIM_PROMPT = b"Select a Mistral FIM model for this chat:"
 SENTINEL = "pty-secret-sentinel"
 
 
@@ -142,6 +142,17 @@ def read_until(master: int, buffer: bytearray, needle: bytes, deadline: float) -
             buffer.extend(os.read(master, 65536))
 
 
+def read_until_count(
+    master: int, buffer: bytearray, needle: bytes, count: int, deadline: float
+) -> None:
+    while buffer.count(needle) < count:
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"timed out waiting for {count} {needle!r}; output={bytes(buffer)!r}")
+        readable, _, _ = select.select([master], [], [], 0.1)
+        if readable:
+            buffer.extend(os.read(master, 65536))
+
+
 def collect_until_exit(pid: int, master: int, buffer: bytearray, deadline: float) -> int:
     while time.monotonic() < deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
@@ -225,6 +236,12 @@ def main() -> None:
         os.write(master, b"2\n")
         read_until(master, output, FIM_PROMPT, deadline)
         os.write(master, b"1\n")
+        read_until_count(master, output, b"fixture answer", 1, deadline)
+        read_until_count(master, output, b"you> ", 3, deadline)
+        os.write(master, b"please continue\n")
+        read_until_count(master, output, b"fixture answer", 2, deadline)
+        read_until_count(master, output, b"you> ", 4, deadline)
+        os.write(master, b"/exit\n")
         status = collect_until_exit(pid, master, output, deadline)
     finally:
         server.shutdown()
@@ -241,7 +258,7 @@ def main() -> None:
     assert ModelHandler.request_path == "/v1/chat/completions"
     assert ModelHandler.request_body is not None
     assert ModelHandler.request_body["model"] == "fixture-chat-b"
-    assert len(ModelHandler.request_bodies) == 2
+    assert len(ModelHandler.request_bodies) == 3
     replayed_call = ModelHandler.request_bodies[1]["messages"][-2]["tool_calls"][0]
     assert replayed_call["id"] == "fixture-call"
     assert replayed_call["type"] == "function"
@@ -250,10 +267,21 @@ def main() -> None:
     assert tool_message["role"] == "tool"
     assert tool_message["name"] == "list_files"
     assert tool_message["tool_call_id"] == "fixture-call"
+    follow_up = ModelHandler.request_bodies[2]["messages"]
+    assert follow_up[-1]["role"] == "user"
+    assert "please continue" in json.dumps(follow_up[-1])
+    assert any(message["role"] == "assistant" and "fixture answer" in json.dumps(message) for message in follow_up)
+    assert any(message["role"] == "tool" for message in follow_up)
+    session_headers = []
     for root, _, files in os.walk(sessions):
         for name in files:
             with open(os.path.join(root, name), "rb") as stored:
-                assert SENTINEL.encode() not in stored.read(), name
+                content = stored.read()
+                assert SENTINEL.encode() not in content, name
+                session_headers.append(json.loads(content.splitlines()[0])["data"])
+    assert len(session_headers) == 2, session_headers
+    ids = {header["id"] for header in session_headers}
+    assert any(header["parent_session_id"] in ids for header in session_headers)
 
     cancelled_pid, cancelled_master = pty.fork()
     if cancelled_pid == 0:
@@ -278,6 +306,22 @@ def main() -> None:
 
     assert cancelled_status != 0, cancelled_output
     assert b"API key input was cancelled" in cancelled_output, cancelled_output
+
+    idle_pid, idle_master = pty.fork()
+    if idle_pid == 0:
+        os.execve(sys.argv[1], [sys.argv[1], "--no-credential-store"], environment)
+
+    idle_output = bytearray()
+    idle_deadline = time.monotonic() + 15
+    try:
+        read_until(idle_master, idle_output, b"you> ", idle_deadline)
+        os.write(idle_master, b"/exit\n")
+        idle_status = collect_until_exit(idle_pid, idle_master, idle_output, idle_deadline)
+    finally:
+        os.close(idle_master)
+
+    assert idle_status == 0, idle_output
+    assert PROMPT not in idle_output, idle_output
     workspace.cleanup()
 
 

@@ -45,6 +45,11 @@ impl CancellationToken {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
+
+    /// Prepare the same controller for a new interactive turn after cancellation.
+    pub fn reset(&self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +102,8 @@ pub struct AgentRun {
     pub events: Vec<RuntimeEvent>,
     pub model_requests: u32,
     pub tool_calls: u32,
+    /// Full conversation after this turn, for an interactive caller to reuse.
+    pub messages: Vec<Message>,
 }
 
 pub struct AgentController<A, T> {
@@ -132,7 +139,23 @@ where
     }
 
     pub async fn run(&self, prompt: impl Into<String>) -> AgentRun {
-        let mut state = RunState::new(Message::user(prompt.into()));
+        self.run_with_history(prompt, &[]).await
+    }
+
+    pub async fn run_with_history(
+        &self,
+        prompt: impl Into<String>,
+        history: &[Message],
+    ) -> AgentRun {
+        let mut messages = if history.is_empty() {
+            vec![Message::system(
+                "You are Le Harness, a coding agent working in a repository. Use the available tools to inspect relevant files before answering questions about the repository. Never claim to have read a file that you have not inspected. Continue useful work with available tools before asking for missing context. Follow the user's instructions and the tool permission policy.",
+            )]
+        } else {
+            history.to_vec()
+        };
+        messages.push(Message::user(prompt.into()));
+        let mut state = RunState::new(messages);
         loop {
             if self.cancellation.is_cancelled() {
                 return state.finish(AgentStatus::Cancelled);
@@ -288,9 +311,9 @@ struct RunState {
 }
 
 impl RunState {
-    fn new(message: Message) -> Self {
+    fn new(messages: Vec<Message>) -> Self {
         let mut state = Self {
-            messages: vec![message],
+            messages,
             output: String::new(),
             events: Vec::new(),
             sequence: 0,
@@ -309,6 +332,9 @@ impl RunState {
     }
 
     fn finish(mut self, status: AgentStatus) -> AgentRun {
+        if matches!(status, AgentStatus::Completed { .. }) && !self.output.is_empty() {
+            self.messages.push(Message::assistant(self.output.clone()));
+        }
         self.record("session.finished", serde_json::json!({"status":&status}));
         AgentRun {
             status,
@@ -316,6 +342,7 @@ impl RunState {
             events: self.events,
             model_requests: self.model_requests,
             tool_calls: self.tool_calls,
+            messages: self.messages,
         }
     }
 }
@@ -462,12 +489,35 @@ mod tests {
             .run("task")
             .await;
         assert_eq!(run.output, "done");
+        assert!(matches!(run.messages.first(), Some(Message::System { .. })));
+        assert!(matches!(
+            run.messages.last(),
+            Some(Message::Assistant { .. })
+        ));
         assert_eq!(
             run.status,
             AgentStatus::Completed {
                 finish_reason: "stop".into()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn follow_up_reuses_completed_conversation() {
+        let model = ScriptedModelAdapter::default();
+        model.push_chat(text("first answer")).await;
+        model.push_chat(text("second answer")).await;
+        let controller = AgentController::new(model, EchoTool, AgentLimits::default());
+        let first = controller.run("first question").await;
+        let second = controller
+            .run_with_history("follow-up question", &first.messages)
+            .await;
+        let serialized = serde_json::to_string(&second.messages).unwrap();
+        assert!(serialized.contains("first question"));
+        assert!(serialized.contains("first answer"));
+        assert!(serialized.contains("follow-up question"));
+        assert!(serialized.contains("second answer"));
+        assert_eq!(second.model_requests, 1);
     }
 
     #[tokio::test]

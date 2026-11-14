@@ -106,7 +106,27 @@ Use the global `--no-credential-store` flag for an explicitly ephemeral
 interactive key. `doctor` reports whether an environment override is present,
 and `auth status` reports whether a saved key exists; neither prints its value.
 
-## Run a session
+## Chat with the agent
+
+Start a chat from the repository directory:
+
+```text
+le-harness
+```
+
+Or set the repository root and send the first message immediately:
+
+```text
+le-harness run "Explain this repository" --root .
+```
+
+In an interactive terminal, Le Harness stays open for follow-up messages. It
+keeps completed conversation turns and tool results in context, and asks for
+credentials, model choices, and tool approvals in the terminal flow. Enter
+`/help` for commands, `/exit` to leave, or press Ctrl-C to cancel the current
+turn. Each turn is journaled and linked to the previous turn. When stdin is
+not a terminal, or with `--no-input` or `--json`, `run` processes one prompt
+and exits for script compatibility.
 
 The default assisted mode allows repository reads and asks before each exact write or command:
 

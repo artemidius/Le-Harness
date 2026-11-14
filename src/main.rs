@@ -64,10 +64,10 @@ enum Command {
         #[command(subcommand)]
         command: AuthCommand,
     },
-    /// Run one bounded coding-agent session.
+    /// Start a terminal chat, optionally with an initial task.
     Run {
-        /// Task for the agent.
-        prompt: String,
+        /// Optional first message. Required for non-interactive use.
+        prompt: Option<String>,
         /// Repository root.
         #[arg(long, default_value = ".")]
         root: PathBuf,
@@ -212,7 +212,7 @@ struct LocalCliConfig {
 }
 
 struct RunConfig {
-    prompt: String,
+    prompt: Option<String>,
     root: PathBuf,
     mode: CliMode,
     execution: CliExecution,
@@ -326,7 +326,29 @@ async fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
             }
             le_harness::tui::run(session_store(session_dir)?.load(&id)?)?;
         }
-        None => println!("Run `le-harness --help` to get started."),
+        None => {
+            run(RunConfig {
+                prompt: None,
+                root: PathBuf::from("."),
+                mode: CliMode::Assisted,
+                execution: CliExecution::Native,
+                image: "rust:1.88-slim".into(),
+                json: false,
+                no_input,
+                no_credential_store,
+                mcp_config: None,
+                local: LocalCliConfig {
+                    base_url: None,
+                    model: None,
+                    fim_model: None,
+                    only: false,
+                    tool_calling: true,
+                },
+                session_dir: None,
+                resume: None,
+            })
+            .await?
+        }
     }
     Ok(())
 }
@@ -487,24 +509,35 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
         session_dir,
         resume,
     } = config;
+    let interactive = !json && !no_input && io::stdin().is_terminal() && io::stdout().is_terminal();
+    if !interactive && prompt.is_none() {
+        return Err("a prompt is required without an interactive terminal".into());
+    }
     if matches!(mode, CliMode::AutomatedSandbox) && matches!(execution, CliExecution::Native) {
         return Err("automated-sandbox mode requires --execution docker".into());
     }
     let root = root.canonicalize()?;
     let sessions = session_store(session_dir)?;
-    let original_prompt = prompt;
-    let prompt = if let Some(id) = resume.as_deref() {
+    if interactive {
+        println!("Le Harness · {}", root.display());
+        println!("Type /help for commands or /exit to leave.\n");
+    }
+    let mut next_prompt = match prompt {
+        Some(prompt) => prompt,
+        None => match read_chat_message()? {
+            Some(prompt) => prompt,
+            None => return Ok(()),
+        },
+    };
+    let mut initial_resume = if let Some(id) = resume.as_deref() {
         let snapshot = sessions.load(id)?;
         if snapshot.header.repository_root.canonicalize()? != root {
             return Err("resume session belongs to a different repository".into());
         }
-        sessions
-            .resume_state(id)?
-            .continuation_prompt(&original_prompt)?
+        Some(sessions.resume_state(id)?)
     } else {
-        original_prompt.clone()
+        None
     };
-    let before = git_evidence(&root);
     let repository = Repository::open(&root)?;
     let repository_tools = RepositoryToolHandler::new(repository, RepositoryToolLimits::default());
     let editor = WorkspaceEditor::open(&root)?;
@@ -623,59 +656,122 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
     let controller =
         AgentController::new(model, tools, AgentLimits::default()).with_tool_catalog(catalog);
     let cancellation = controller.cancellation_token();
-    let operation = controller.run(prompt);
-    tokio::pin!(operation);
-    let result = tokio::select! {
-        result = &mut operation => result,
-        signal = tokio::signal::ctrl_c() => {
-            signal?;
-            cancellation.cancel();
-            operation.await
+    let mut history = Vec::new();
+    let mut parent_session = resume;
+    loop {
+        let original_prompt = next_prompt;
+        let effective_prompt = if let Some(state) = initial_resume.take() {
+            state.continuation_prompt(&original_prompt)?
+        } else {
+            original_prompt.clone()
+        };
+        if interactive {
+            println!("le> Working...");
         }
-    };
-    let after = git_evidence(&root);
-    let saved = sessions.save(original_prompt, &root, resume, &result)?;
-    let output = RunOutput {
-        session_id: saved.header.id,
-        status: result.status,
-        answer: result.output,
-        model_requests: result.model_requests,
-        tool_calls: result.tool_calls,
-        events: result.events,
-        git: GitTransition { before, after },
-    };
-    let failure = match &output.status {
-        le_harness::runtime::AgentStatus::Failed { message } => Some(message.clone()),
-        _ => None,
-    };
-    if json {
-        println!("{}", serde_json::to_string(&output)?);
-    } else {
-        println!("{}", output.answer);
-        println!(
-            "\nstatus: {} | model requests: {} | tool calls: {} | session: {}",
-            serde_json::to_value(&output.status)?["state"]
-                .as_str()
-                .unwrap_or("unknown"),
-            output.model_requests,
-            output.tool_calls,
-            output.session_id
-        );
-        if output.git.before.status != output.git.after.status {
-            println!("repository changes:\n{}", output.git.after.status);
+        let before = git_evidence(&root);
+        let result = {
+            let operation = controller.run_with_history(effective_prompt, &history);
+            tokio::pin!(operation);
+            tokio::select! {
+                result = &mut operation => result,
+                signal = tokio::signal::ctrl_c() => {
+                    signal?;
+                    cancellation.cancel();
+                    operation.await
+                }
+            }
+        };
+        cancellation.reset();
+        let after = git_evidence(&root);
+        let saved = sessions.save(original_prompt, &root, parent_session, &result)?;
+        let output = RunOutput {
+            session_id: saved.header.id.clone(),
+            status: result.status.clone(),
+            answer: result.output.clone(),
+            model_requests: result.model_requests,
+            tool_calls: result.tool_calls,
+            events: result.events,
+            git: GitTransition { before, after },
+        };
+        let failure = match &output.status {
+            le_harness::runtime::AgentStatus::Failed { message } => Some(message.clone()),
+            _ => None,
+        };
+        if json {
+            println!("{}", serde_json::to_string(&output)?);
+        } else if interactive {
+            if !output.answer.is_empty() {
+                println!("\nle> {}", output.answer);
+            }
+            if let Some(message) = &failure {
+                eprintln!("le> Error: {message}");
+            } else if matches!(output.status, le_harness::runtime::AgentStatus::Cancelled) {
+                eprintln!("le> Cancelled.");
+            }
+            if output.git.before.status != output.git.after.status {
+                println!("repository changes:\n{}", output.git.after.status);
+            }
+        } else {
+            println!("{}", output.answer);
+            println!(
+                "\nstatus: {} | model requests: {} | tool calls: {} | session: {}",
+                serde_json::to_value(&output.status)?["state"]
+                    .as_str()
+                    .unwrap_or("unknown"),
+                output.model_requests,
+                output.tool_calls,
+                output.session_id
+            );
+            if output.git.before.status != output.git.after.status {
+                println!("repository changes:\n{}", output.git.after.status);
+            }
+        }
+        if !interactive {
+            if let Some(message) = failure {
+                return Err(format!("agent run failed: {message}").into());
+            }
+            return Ok(());
+        }
+        if matches!(
+            result.status,
+            le_harness::runtime::AgentStatus::Completed { .. }
+        ) {
+            history = result.messages;
+        }
+        parent_session = Some(saved.header.id);
+        next_prompt = match read_chat_message()? {
+            Some(prompt) => prompt,
+            None => return Ok(()),
+        };
+    }
+}
+
+fn read_chat_message() -> io::Result<Option<String>> {
+    loop {
+        print!("\nyou> ");
+        io::stdout().flush()?;
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line)? == 0 {
+            println!();
+            return Ok(None);
+        }
+        let line = line.trim();
+        match line {
+            "" => continue,
+            "/exit" | "/quit" => return Ok(None),
+            "/help" => println!(
+                "Enter a task or follow-up. /exit leaves the chat; Ctrl-C cancels the current turn."
+            ),
+            _ => return Ok(Some(line.to_owned())),
         }
     }
-    if let Some(message) = failure {
-        return Err(format!("agent run failed: {message}").into());
-    }
-    Ok(())
 }
 
 struct TerminalCredentialPrompt;
 
 impl CredentialPrompt for TerminalCredentialPrompt {
     fn prompt_api_key(&mut self) -> Result<String, SettingsError> {
-        rpassword::prompt_password("Mistral API key (hidden; saved in OS credential store): ")
+        rpassword::prompt_password("le> Mistral API key (hidden; saved in OS credential store): ")
             .map_err(|error| match error.kind() {
                 io::ErrorKind::Interrupted | io::ErrorKind::UnexpectedEof => {
                     SettingsError::InputCancelled
@@ -693,12 +789,12 @@ impl ModelPrompt for TerminalModelPrompt {
         role: ModelSelectionRole,
         choices: &[String],
     ) -> Result<String, SettingsError> {
-        eprintln!("Select a Mistral {role} model for this process:");
+        eprintln!("le> Select a Mistral {role} model for this chat:");
         for (index, model) in choices.iter().enumerate() {
             eprintln!("  {}) {model}", index + 1);
         }
         loop {
-            eprint!("Choice [1-{}]: ", choices.len());
+            eprint!("you> Choice [1-{}]: ", choices.len());
             io::stderr()
                 .flush()
                 .map_err(|error| SettingsError::ModelPromptFailed(error.to_string()))?;
@@ -979,10 +1075,10 @@ impl Approver for ConsoleApprover {
         let request = request.clone();
         tokio::task::spawn_blocking(move || {
             eprintln!(
-                "Approve {:?} tool {} with arguments {}? [y/N]",
+                "le> Allow {:?} tool {} with arguments {}? [y/N]",
                 request.effect, request.tool, request.arguments
             );
-            eprint!("> ");
+            eprint!("you> ");
             io::stderr().flush().ok()?;
             let mut answer = String::new();
             io::stdin().read_line(&mut answer).ok()?;
