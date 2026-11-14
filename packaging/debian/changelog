@@ -1,3 +1,9 @@
+le-harness (0.1.0~rc.9-1) unstable; urgency=medium
+
+  * Save cloud model choices and allow in-chat model switching.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Sat, 14 Nov 2026 21:43:22 +0000
+
 le-harness (0.1.0~rc.8-1) unstable; urgency=medium
 
   * Keep terminal coding-agent chats open for follow-up turns.
