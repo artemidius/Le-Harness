@@ -17,12 +17,15 @@ import time
 
 
 PROMPT = b"Mistral API key (hidden; used for this process only): "
+CHAT_PROMPT = b"Select a Mistral chat model for this process:"
+FIM_PROMPT = b"Select a Mistral FIM model for this process:"
 SENTINEL = "pty-secret-sentinel"
 
 
 class ModelHandler(http.server.BaseHTTPRequestHandler):
     authorization: str | None = None
     request_path: str | None = None
+    request_body: dict[str, object] | None = None
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         if self.path != "/v1/models":
@@ -32,7 +35,34 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
         body = json.dumps(
             {
                 "object": "list",
-                "data": [{"id": "fixture-model", "object": "model"}],
+                "data": [
+                    {
+                        "id": "fixture-chat-a",
+                        "object": "model",
+                        "capabilities": {
+                            "completion_chat": True,
+                            "function_calling": True,
+                        },
+                    },
+                    {
+                        "id": "fixture-chat-b",
+                        "object": "model",
+                        "capabilities": {
+                            "completion_chat": True,
+                            "function_calling": True,
+                        },
+                    },
+                    {
+                        "id": "fixture-fim-a",
+                        "object": "model",
+                        "capabilities": {"completion_fim": True},
+                    },
+                    {
+                        "id": "fixture-fim-b",
+                        "object": "model",
+                        "capabilities": {"completion_fim": True},
+                    },
+                ],
             }
         ).encode()
         self.send_response(200)
@@ -48,11 +78,11 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
         type(self).authorization = self.headers.get("Authorization")
         type(self).request_path = self.path
         length = int(self.headers.get("Content-Length", "0"))
-        self.rfile.read(length)
+        type(self).request_body = json.loads(self.rfile.read(length))
         event = json.dumps(
             {
                 "id": "fixture-chat",
-                "model": "fixture-model",
+                "model": "fixture-chat-b",
                 "choices": [
                     {
                         "index": 0,
@@ -124,8 +154,6 @@ def main() -> None:
     ]:
         environment.pop(name, None)
     environment["LE_HARNESS_MISTRAL_BASE_URL"] = f"http://127.0.0.1:{port}/v1/"
-    environment["LE_HARNESS_CHAT_MODEL"] = "fixture-model"
-    environment["LE_HARNESS_FIM_MODEL"] = "fixture-fim"
     workspace = tempfile.TemporaryDirectory()
     sessions = os.path.join(workspace.name, "sessions")
 
@@ -162,6 +190,10 @@ def main() -> None:
                 output.extend(os.read(master, 65536))
 
         wait_for_echo(master, True, deadline)
+        read_until(master, output, CHAT_PROMPT, deadline)
+        os.write(master, b"2\n")
+        read_until(master, output, FIM_PROMPT, deadline)
+        os.write(master, b"1\n")
         status = collect_until_exit(pid, master, output, deadline)
     finally:
         server.shutdown()
@@ -176,6 +208,8 @@ def main() -> None:
     assert b"fixture answer" in rendered, rendered
     assert ModelHandler.authorization == f"Bearer {SENTINEL}"
     assert ModelHandler.request_path == "/v1/chat/completions"
+    assert ModelHandler.request_body is not None
+    assert ModelHandler.request_body["model"] == "fixture-chat-b"
     for root, _, files in os.walk(sessions):
         for name in files:
             with open(os.path.join(root, name), "rb") as stored:

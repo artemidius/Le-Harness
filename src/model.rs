@@ -21,6 +21,16 @@ use crate::settings::{ApiKey, MistralSettings};
 pub type ModelEventStream =
     Pin<Box<dyn Stream<Item = Result<ModelEvent, ModelError>> + Send + 'static>>;
 
+/// Provider-reported model metadata used by the interactive role picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MistralModelInfo {
+    pub id: String,
+    pub chat: Option<bool>,
+    pub fim: Option<bool>,
+    pub function_calling: Option<bool>,
+    pub archived: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatTurn {
     pub messages: Vec<Message>,
@@ -166,11 +176,8 @@ impl MistralAdapter {
         adapter.chat_model = chat_model.into();
         Ok(adapter)
     }
-}
 
-#[async_trait]
-impl ModelAdapter for MistralAdapter {
-    async fn list_models(&self) -> Result<Vec<String>, ModelError> {
+    pub async fn discover_models(&self) -> Result<Vec<MistralModelInfo>, ModelError> {
         let response = self
             .client
             .models()
@@ -179,6 +186,24 @@ impl ModelAdapter for MistralAdapter {
         Ok(response
             .data
             .data
+            .into_iter()
+            .map(|model| MistralModelInfo {
+                id: model.id,
+                chat: model.capabilities.completion_chat,
+                fim: model.capabilities.completion_fim,
+                function_calling: model.capabilities.function_calling,
+                archived: model.archived,
+            })
+            .collect())
+    }
+}
+
+#[async_trait]
+impl ModelAdapter for MistralAdapter {
+    async fn list_models(&self) -> Result<Vec<String>, ModelError> {
+        Ok(self
+            .discover_models()
+            .await?
             .into_iter()
             .map(|model| model.id)
             .collect())

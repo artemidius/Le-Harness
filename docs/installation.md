@@ -78,7 +78,18 @@ Offline diagnostics require no provider credential:
 le-harness --no-input doctor
 ```
 
-Configure account-visible model IDs before a cloud run:
+In an interactive terminal, start a cloud run directly:
+
+```sh
+le-harness run "Explain this repository" --root .
+```
+
+If the key or model IDs are absent, Le Harness asks for the hidden key, queries
+the authenticated account, and presents numbered chat and FIM model pickers.
+Prompted values stay in process memory and are not written to configuration,
+session journals, logs, child environments, or shell history.
+
+For automation, configure account-visible model IDs explicitly:
 
 ```sh
 export LE_HARNESS_CHAT_MODEL=...
@@ -86,10 +97,8 @@ export LE_HARNESS_FIM_MODEL=...
 le-harness run "Explain this repository" --root .
 ```
 
-If `MISTRAL_API_KEY` is absent, an interactive terminal asks once for hidden
-input. The key stays in process memory and is not written to configuration,
-session journals, logs, child environments, or shell history. Automation should
-provide the variable through its secret manager and disable all prompts:
+Automation should provide the key through its secret manager and disable all
+prompts:
 
 ```sh
 export MISTRAL_API_KEY=...
@@ -97,8 +106,8 @@ le-harness --no-input run "Inspect the failing test" --mode inspect --root .
 ```
 
 Do not put the key on a command line. JSON output, recognized CI environments,
-`--no-input`, and noninteractive terminals fail promptly when a cloud key is
-missing.
+`--no-input`, and noninteractive terminals fail promptly when any required
+cloud setting is missing.
 
 Local-only operation needs neither a Mistral key nor cloud model IDs:
 

@@ -17,9 +17,9 @@ impl Drop for Server {
 
 fn start_server() -> Option<(Server, String)> {
     let python = [
-        "/usr/bin/python3",
         "/opt/homebrew/bin/python3",
         "/usr/local/bin/python3",
+        "/usr/bin/python3",
     ]
     .into_iter()
     .find(|path| std::path::Path::new(path).is_file())?;
@@ -30,14 +30,29 @@ fn start_server() -> Option<(Server, String)> {
         "{}/tests/fixtures/openai_server.py",
         env!("CARGO_MANIFEST_DIR")
     );
-    let child = Command::new(python)
+    let mut child = Command::new(python)
         .args([fixture, port.to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    std::thread::sleep(Duration::from_millis(100));
+    let mut ready = false;
+    for _ in 0..100 {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            ready = true;
+            break;
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if !ready {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
     Some((Server(child), format!("http://127.0.0.1:{port}/v1/")))
 }
 
