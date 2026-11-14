@@ -1507,7 +1507,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "le-harness"
-version = "0.1.0-rc.6"
+version = "0.1.0-rc.7"
 dependencies = [
  "async-trait",
  "clap",

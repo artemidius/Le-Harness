@@ -59,14 +59,14 @@ Linux releases also contain direct `.deb` downloads. A direct package can be
 installed without configuring future repository upgrades:
 
 ```sh
-sudo apt install ./le-harness_0.1.0-rc.6-1_amd64.deb
+sudo apt install ./le-harness_0.1.0-rc.7-1_amd64.deb
 ```
 
 Download `SHA256SUMS` with the artifacts and verify the exact files before
 installation:
 
 ```sh
-grep ' le-harness_0.1.0-rc.6-1_amd64.deb$' SHA256SUMS \
+grep ' le-harness_0.1.0-rc.7-1_amd64.deb$' SHA256SUMS \
   | sha256sum --check -
 ```
 
