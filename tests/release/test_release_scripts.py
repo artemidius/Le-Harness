@@ -4,6 +4,7 @@ import importlib.util
 import json
 import pathlib
 import tempfile
+import tomllib
 import unittest
 
 
@@ -26,8 +27,10 @@ render_homebrew_formula = load("render_homebrew_formula")
 
 class ValidateReleaseTests(unittest.TestCase):
     def test_current_package_metadata_is_consistent(self) -> None:
-        result = validate_release.validate(ROOT, "v0.1.0-rc.9")
-        self.assertEqual(result["version"], "0.1.0-rc.9")
+        with (ROOT / "Cargo.toml").open("rb") as source:
+            version = tomllib.load(source)["package"]["version"]
+        result = validate_release.validate(ROOT, f"v{version}")
+        self.assertEqual(result["version"], version)
         self.assertEqual(result["channel"], "preview")
         self.assertTrue(result["prerelease"])
 
