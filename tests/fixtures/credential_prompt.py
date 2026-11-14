@@ -16,7 +16,7 @@ import threading
 import time
 
 
-PROMPT = b"Mistral API key (hidden; used for this process only): "
+PROMPT = b"Mistral API key (hidden; saved in OS credential store): "
 CHAT_PROMPT = b"Select a Mistral chat model for this process:"
 FIM_PROMPT = b"Select a Mistral FIM model for this process:"
 SENTINEL = "pty-secret-sentinel"
@@ -26,6 +26,7 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
     authorization: str | None = None
     request_path: str | None = None
     request_body: dict[str, object] | None = None
+    request_bodies: list[dict[str, object]] = []
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         if self.path != "/v1/models":
@@ -79,19 +80,48 @@ class ModelHandler(http.server.BaseHTTPRequestHandler):
         type(self).request_path = self.path
         length = int(self.headers.get("Content-Length", "0"))
         type(self).request_body = json.loads(self.rfile.read(length))
-        event = json.dumps(
-            {
-                "id": "fixture-chat",
-                "model": "fixture-chat-b",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": "fixture answer"},
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
-        )
+        type(self).request_bodies.append(type(self).request_body)
+        if len(type(self).request_bodies) == 1:
+            event = json.dumps(
+                {
+                    "id": "fixture-chat-1",
+                    "model": "fixture-chat-b",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "fixture-call",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "list_files",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                }
+            )
+        else:
+            event = json.dumps(
+                {
+                    "id": "fixture-chat-2",
+                    "model": "fixture-chat-b",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "fixture answer"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            )
         body = f"data: {event}\n\ndata: [DONE]\n\n".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -163,6 +193,7 @@ def main() -> None:
             sys.argv[1],
             [
                 sys.argv[1],
+                "--no-credential-store",
                 "run",
                 "answer from the fixture",
                 "--mode",
@@ -210,6 +241,11 @@ def main() -> None:
     assert ModelHandler.request_path == "/v1/chat/completions"
     assert ModelHandler.request_body is not None
     assert ModelHandler.request_body["model"] == "fixture-chat-b"
+    assert len(ModelHandler.request_bodies) == 2
+    tool_message = ModelHandler.request_bodies[1]["messages"][-1]
+    assert tool_message["role"] == "tool"
+    assert tool_message["name"] == "list_files"
+    assert tool_message["tool_call_id"] == "fixture-call"
     for root, _, files in os.walk(sessions):
         for name in files:
             with open(os.path.join(root, name), "rb") as stored:
@@ -217,7 +253,11 @@ def main() -> None:
 
     cancelled_pid, cancelled_master = pty.fork()
     if cancelled_pid == 0:
-        os.execve(sys.argv[1], [sys.argv[1], "doctor", "--live"], environment)
+        os.execve(
+            sys.argv[1],
+            [sys.argv[1], "--no-credential-store", "doctor", "--live"],
+            environment,
+        )
 
     cancelled_output = bytearray()
     cancelled_deadline = time.monotonic() + 15

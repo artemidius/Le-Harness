@@ -10,7 +10,7 @@ fn help_exposes_primary_workflows() {
     let output = Command::new(binary()).arg("--help").output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    for command in ["doctor", "run", "eval", "session", "tui"] {
+    for command in ["doctor", "auth", "run", "eval", "session", "tui"] {
         assert!(stdout.contains(command), "help omitted {command}");
     }
 }
@@ -24,14 +24,14 @@ fn doctor_redacts_configured_secret() {
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("MISTRAL_API_KEY: set"));
+    assert!(stdout.contains("MISTRAL_API_KEY environment override: set"));
     assert!(!stdout.contains("never-print-this-value"));
 }
 
 #[test]
 fn no_input_fails_fast_when_a_cloud_key_is_missing() {
     let output = Command::new(binary())
-        .args(["--no-input", "doctor", "--live"])
+        .args(["--no-input", "--no-credential-store", "doctor", "--live"])
         .env_remove("MISTRAL_API_KEY")
         .output()
         .unwrap();
@@ -44,7 +44,7 @@ fn no_input_fails_fast_when_a_cloud_key_is_missing() {
 #[test]
 fn json_cloud_run_never_waits_for_a_key() {
     let output = Command::new(binary())
-        .args(["run", "inspect", "--json"])
+        .args(["--no-credential-store", "run", "inspect", "--json"])
         .env_remove("MISTRAL_API_KEY")
         .env("LE_HARNESS_CHAT_MODEL", "fixture-chat")
         .env("LE_HARNESS_FIM_MODEL", "fixture-fim")

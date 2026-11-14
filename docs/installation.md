@@ -86,8 +86,19 @@ le-harness run "Explain this repository" --root .
 
 If the key or model IDs are absent, Le Harness asks for the hidden key, queries
 the authenticated account, and presents numbered chat and FIM model pickers.
-Prompted values stay in process memory and are not written to configuration,
-session journals, logs, child environments, or shell history.
+The prompted key is saved in the operating system credential store and reused;
+model selections stay in process memory. Neither value is written to repository
+configuration, session journals, logs, child environments, or shell history.
+
+Inspect, replace, or remove the saved key with:
+
+```sh
+le-harness auth status
+le-harness auth login
+le-harness auth logout
+```
+
+Use `--no-credential-store` when an interactive key must remain ephemeral.
 
 For automation, configure account-visible model IDs explicitly:
 
