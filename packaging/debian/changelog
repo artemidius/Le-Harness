@@ -1,3 +1,9 @@
+le-harness (0.1.0~rc.8-1) unstable; urgency=medium
+
+  * Keep terminal coding-agent chats open for follow-up turns.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Sat, 14 Nov 2026 20:58:22 +0000
+
 le-harness (0.1.0~rc.7-1) unstable; urgency=medium
 
   * Repair streamed Mistral tool-call replay after the first tool result.
