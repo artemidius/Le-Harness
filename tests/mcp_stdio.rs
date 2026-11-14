@@ -5,9 +5,9 @@ use le_harness::mcp::{McpConfig, McpManager};
 #[tokio::test]
 async fn discovers_and_calls_a_stdio_fixture_server() {
     let Some(python) = [
-        "/usr/bin/python3",
         "/opt/homebrew/bin/python3",
         "/usr/local/bin/python3",
+        "/usr/bin/python3",
     ]
     .into_iter()
     .find(|path| std::path::Path::new(path).is_file()) else {
@@ -43,9 +43,9 @@ async fn discovers_and_calls_a_stdio_fixture_server() {
 #[tokio::test]
 async fn refuses_unclassified_server_tools() {
     let Some(python) = [
-        "/usr/bin/python3",
         "/opt/homebrew/bin/python3",
         "/usr/local/bin/python3",
+        "/usr/bin/python3",
     ]
     .into_iter()
     .find(|path| std::path::Path::new(path).is_file()) else {

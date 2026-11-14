@@ -380,6 +380,7 @@ access for the tap, signing-key custody and protected secrets, a public package
 maintainer contact, and supported build runners. These are concrete setup
 requirements for implementation; this plan does not create them.
 
-Persistent credential storage, OS keychains, an interactive model picker,
-Homebrew core submission, official Debian/Ubuntu archive inclusion, Snap/Flatpak,
-and automatic self-updating are outside this delivery.
+Persistent credential storage, OS keychains, Homebrew core submission, official
+Debian/Ubuntu archive inclusion, Snap/Flatpak, and automatic self-updating are
+outside this delivery. Account-backed interactive model selection was added in
+a subsequent release.
