@@ -20,11 +20,56 @@ brew install artemidius/tap/le-harness
 The formula-scoped trust applies only to Le Harness, not to other current or
 future formulae in the tap.
 
-Debian and Ubuntu users can opt into the signed preview APT repository, then
-install and upgrade with ordinary `apt` commands. Direct archives and `.deb`
-packages remain available on GitHub Releases. See the [installation
-guide](docs/installation.md) for supported platforms, signature setup,
-upgrades, removal, and first-run credential behavior.
+Debian and Ubuntu users on amd64 or arm64 can opt into the signed preview APT
+repository. Install the repository-specific key and confirm its fingerprint:
+
+```sh
+sudo apt update
+sudo apt install --yes ca-certificates curl gnupg
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://artemidius.github.io/Le-Harness/apt/le-harness-archive-keyring.gpg \
+  | sudo tee /etc/apt/keyrings/le-harness-archive-keyring.gpg >/dev/null
+sudo chmod 0644 /etc/apt/keyrings/le-harness-archive-keyring.gpg
+gpg --show-keys --with-fingerprint \
+  /etc/apt/keyrings/le-harness-archive-keyring.gpg
+```
+
+The full fingerprint must be:
+
+```text
+520A 6749 CEFE 62FC EEA3  0447 2160 9ACA AA5F 447E
+```
+
+Add the preview source with package-scoped pinning, then install Le Harness:
+
+```sh
+sudo tee /etc/apt/sources.list.d/le-harness.sources >/dev/null <<'EOF'
+Types: deb
+URIs: https://artemidius.github.io/Le-Harness/apt/
+Suites: preview
+Components: main
+Architectures: amd64 arm64
+Signed-By: /etc/apt/keyrings/le-harness-archive-keyring.gpg
+EOF
+
+sudo tee /etc/apt/preferences.d/le-harness >/dev/null <<'EOF'
+Package: *
+Pin: release o=Le Harness
+Pin-Priority: 1
+
+Package: le-harness
+Pin: release o=Le Harness
+Pin-Priority: 500
+EOF
+
+sudo apt update
+sudo apt install le-harness
+```
+
+Direct archives and `.deb` packages remain available on GitHub Releases. See
+the [installation guide](docs/installation.md) for supported platforms,
+upgrades, removal, and first-run credential behavior, or the [APT
+guide](docs/install/apt.md) for repository maintenance and cleanup.
 
 ## Provider configuration
 
