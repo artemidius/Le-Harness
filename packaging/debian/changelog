@@ -1,3 +1,9 @@
+le-harness (0.1.0~rc.7-1) unstable; urgency=medium
+
+  * Repair streamed Mistral tool-call replay after the first tool result.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Sat, 14 Nov 2026 03:05:13 +0000
+
 le-harness (0.1.0~rc.6-1) unstable; urgency=medium
 
   * Persist Mistral credentials securely and repair tool-result replay.
