@@ -800,7 +800,7 @@ fn auth_command(command: AuthCommand, no_input: bool) -> Result<(), Box<dyn std:
         }
         AuthCommand::Status => {
             let status = match store.load() {
-                Ok(Some(secret)) if ApiKey::new(secret).is_ok() => "stored",
+                Ok(Some(secret)) if ApiKey::new(secret.clone()).is_ok() => "stored",
                 Ok(Some(_)) => "invalid",
                 Ok(None) => "missing",
                 Err(error) => {
