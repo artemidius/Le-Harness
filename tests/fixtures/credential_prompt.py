@@ -242,6 +242,10 @@ def main() -> None:
     assert ModelHandler.request_body is not None
     assert ModelHandler.request_body["model"] == "fixture-chat-b"
     assert len(ModelHandler.request_bodies) == 2
+    replayed_call = ModelHandler.request_bodies[1]["messages"][-2]["tool_calls"][0]
+    assert replayed_call["id"] == "fixture-call"
+    assert replayed_call["type"] == "function"
+    assert "index" not in replayed_call
     tool_message = ModelHandler.request_bodies[1]["messages"][-1]
     assert tool_message["role"] == "tool"
     assert tool_message["name"] == "list_files"
