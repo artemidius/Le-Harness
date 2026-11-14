@@ -77,8 +77,9 @@ Le Harness uses the tagged Le Rust SDK for native Mistral model discovery,
 streamed chat, and FIM completions. In an interactive terminal, a first cloud
 run asks for a hidden API key, discovers the models available to that account,
 and presents numbered chat and FIM model pickers. The prompted key is saved in
-the operating system credential store and reused on later runs; selected models
-remain scoped to the current process unless configured through the environment.
+the operating system credential store and reused on later runs. Chat and FIM
+model choices are saved in the user config directory and reused on later
+starts. Enter `/model` during a chat to choose new models immediately.
 
 Manage the saved key without putting it in a command or shell history:
 
@@ -98,8 +99,8 @@ export LE_HARNESS_UTILITY_MODEL=...
 le-harness doctor --live
 ```
 
-Environment values take precedence over the dialog, so a missing key or either
-missing model ID prompts only for that value. Automation should export the key
+Environment values take precedence over saved choices, so a missing key or
+model choice prompts only when no saved value exists. Automation can export the key
 and model variables and pass `--no-input`; JSON and recognized CI contexts never
 wait for a prompt. Environment keys are never copied into the credential store.
 Use the global `--no-credential-store` flag for an explicitly ephemeral
@@ -123,7 +124,8 @@ le-harness run "Explain this repository" --root .
 In an interactive terminal, Le Harness stays open for follow-up messages. It
 keeps completed conversation turns and tool results in context, and asks for
 credentials, model choices, and tool approvals in the terminal flow. Enter
-`/help` for commands, `/exit` to leave, or press Ctrl-C to cancel the current
+`/model` to change the cloud models, `/help` for commands, `/exit` to leave,
+or press Ctrl-C to cancel the current
 turn. Each turn is journaled and linked to the previous turn. When stdin is
 not a terminal, or with `--no-input` or `--json`, `run` processes one prompt
 and exits for script compatibility.
