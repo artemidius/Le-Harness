@@ -4,6 +4,10 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+- Added an approval-gated `create_file` tool that publishes new files without
+  overwriting existing paths.
+- Clarified that code requested without a filename belongs in the chat reply.
+
 ## 0.1.0-rc.9 - 2026-11-14
 
 - Saved selected Mistral chat and FIM models for later starts and added

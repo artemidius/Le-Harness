@@ -149,7 +149,7 @@ where
     ) -> AgentRun {
         let mut messages = if history.is_empty() {
             vec![Message::system(
-                "You are Le Harness, a coding agent working in a repository. Use the available tools to inspect relevant files before answering questions about the repository. Never claim to have read a file that you have not inspected. Continue useful work with available tools before asking for missing context. Follow the user's instructions and the tool permission policy.",
+                "You are Le Harness, a coding agent working in a repository. You can write code directly in your reply. When the user asks for an algorithm or code without specifying a file, provide working code in the reply; do not claim you cannot write code. When the user asks you to create a file, use create_file. For edits to existing files, inspect them first and use the available edit tools. Use the available tools to inspect relevant files before answering questions about the repository. Never claim to have read a file that you have not inspected. Continue useful work with available tools before asking for missing context. Follow the user's instructions and the tool permission policy.",
             )]
         } else {
             history.to_vec()

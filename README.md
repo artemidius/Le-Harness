@@ -130,6 +130,11 @@ turn. Each turn is journaled and linked to the previous turn. When stdin is
 not a terminal, or with `--no-input` or `--json`, `run` processes one prompt
 and exits for script compatibility.
 
+For a code request without a filename, the agent replies with code in the
+chat. Ask it to create a named file when you want code saved in the workspace;
+new files require the same approval as edits in assisted mode. Existing paths
+are never overwritten by the new-file tool.
+
 The default assisted mode allows repository reads and asks before each exact write or command:
 
 ```text
