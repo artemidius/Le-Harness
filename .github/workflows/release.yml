@@ -115,7 +115,8 @@ jobs:
           dpkg --compare-versions "$(dpkg-deb -f "$fixture_deb" Version)" lt "$main_version"
           dpkg --compare-versions 0.1.0~rc.2-1 lt 0.1.0~rc.3-1
           dpkg --compare-versions 0.1.0~rc.3-1 lt 0.1.0~rc.10-1
-          dpkg --compare-versions 0.1.0~rc.10-1 lt 0.1.0-1
+          dpkg --compare-versions 0.1.0~rc.10-1 lt 0.1.0~rc.11-1
+          dpkg --compare-versions 0.1.0~rc.11-1 lt 0.1.0-1
           dpkg --compare-versions 0.1.0-1 lt 0.1.0-2
 
           rm -rf package-root package-control
