@@ -147,6 +147,7 @@ class RenderHomebrewFormulaTests(unittest.TestCase):
         version = render_homebrew_formula.Version.parse
         self.assertLess(version("1.2.3-rc.4"), version("1.2.3"))
         self.assertLess(version("1.2.3-rc.4"), version("1.2.3-rc.10"))
+        self.assertLess(version("1.2.3-rc.10"), version("1.2.3-rc.11"))
         self.assertLess(version("1.2.3"), version("1.3.0-rc.1"))
 
     def test_current_formula_requires_one_consistent_version(self) -> None:

@@ -4,6 +4,8 @@ All notable changes to Le Harness are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.11 - 2026-11-15
+
 - Reworked interactive approvals into a readable terminal layout with file
   diffs or structured action details instead of escaped JSON arguments.
 - Completed the file lifecycle with snapshot-aware reads, binary metadata,

@@ -1,3 +1,9 @@
+le-harness (0.1.0~rc.11-1) unstable; urgency=medium
+
+  * Complete file lifecycle tools and render readable approval diffs.
+
+ -- Artem Sborets <9936670+artemidius@users.noreply.github.com>  Sun, 15 Nov 2026 09:44:43 +0000
+
 le-harness (0.1.0~rc.10-1) unstable; urgency=medium
 
   * Answer code requests directly and create new files with approval.
