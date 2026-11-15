@@ -1221,14 +1221,7 @@ impl Approver for ConsoleApprover {
         }
         let request = request.clone();
         tokio::task::spawn_blocking(move || {
-            eprintln!("le> Proposed {:?} action: {}", request.effect, request.tool);
-            if let Some(preview) = &request.preview {
-                eprintln!("{preview}");
-            } else {
-                eprintln!("arguments: {}", request.arguments);
-            }
-            eprintln!("le> Allow this exact action? [y/N]");
-            eprint!("you> ");
+            eprint!("{}", format_approval_prompt(&request));
             io::stderr().flush().ok()?;
             let mut answer = String::new();
             io::stdin().read_line(&mut answer).ok()?;
@@ -1239,6 +1232,33 @@ impl Approver for ConsoleApprover {
         .ok()
         .flatten()
     }
+}
+
+fn format_approval_prompt(request: &ApprovalRequest) -> String {
+    let (heading, question) = match request.effect {
+        Effect::Read => ("Repository read requested", "Allow this read?"),
+        Effect::Write => ("File change requested", "Apply this change?"),
+        Effect::Execute => ("Command execution requested", "Run this command?"),
+        Effect::Network => ("Network access requested", "Allow network access?"),
+        Effect::Mcp => ("MCP tool access requested", "Allow this MCP action?"),
+    };
+    let details = request
+        .preview
+        .as_deref()
+        .filter(|preview| !preview.trim().is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            let arguments = serde_json::from_str::<serde_json::Value>(&request.arguments)
+                .ok()
+                .and_then(|value| serde_json::to_string_pretty(&value).ok())
+                .unwrap_or_else(|| request.arguments.clone());
+            format!("Details:\n{arguments}")
+        });
+    let details = details.trim_end_matches(['\r', '\n']);
+    format!(
+        "le> {heading} ({})\n\n{details}\n\nle> {question} [y/N]\nyou> ",
+        request.tool
+    )
 }
 
 #[derive(Serialize)]
@@ -1405,5 +1425,29 @@ mod tests {
         let (chat, fim) = model_choices(models);
         assert_eq!(chat, vec!["legacy-a", "legacy-b"]);
         assert_eq!(fim, vec!["legacy-a", "legacy-b"]);
+    }
+
+    #[test]
+    fn file_approval_renders_a_readable_diff_instead_of_escaped_arguments() {
+        let invocation = le_harness::runtime::ToolInvocation {
+            id: "tool-1".into(),
+            name: "create_file".into(),
+            arguments: serde_json::json!({
+                "content":"public class BubbleSort {\n}\n",
+                "path":"algo.java"
+            })
+            .to_string(),
+        };
+        let request = ApprovalRequest::new(&invocation, Effect::Write).with_preview(Some(
+            "--- /dev/null\n+++ b/algo.java\n@@ -0,0 +1,2 @@\n+public class BubbleSort {\n+}\n"
+                .into(),
+        ));
+
+        assert_eq!(
+            format_approval_prompt(&request),
+            "le> File change requested (create_file)\n\n--- /dev/null\n+++ b/algo.java\n@@ -0,0 +1,2 @@\n+public class BubbleSort {\n+}\n\nle> Apply this change? [y/N]\nyou> "
+        );
+        assert!(!format_approval_prompt(&request).contains("\\n"));
+        assert!(!format_approval_prompt(&request).contains("\"content\""));
     }
 }
