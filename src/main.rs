@@ -601,10 +601,14 @@ async fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
     let mut effects = ToolEffects::default()
         .register("list_files", Effect::Read)
         .register("read_file", Effect::Read)
+        .register("file_metadata", Effect::Read)
         .register("search", Effect::Read)
         .register("create_file", Effect::Write)
+        .register("replace_text", Effect::Write)
+        .register("replace_file", Effect::Write)
         .register("replace_span", Effect::Write)
         .register("fim_replace_span", Effect::Write)
+        .register("delete_file", Effect::Write)
         .register("run_command", Effect::Execute);
     if let Some(path) = mcp_config {
         let config: McpConfig = serde_json::from_slice(&std::fs::read(path)?)?;
@@ -1217,10 +1221,13 @@ impl Approver for ConsoleApprover {
         }
         let request = request.clone();
         tokio::task::spawn_blocking(move || {
-            eprintln!(
-                "le> Allow {:?} tool {} with arguments {}? [y/N]",
-                request.effect, request.tool, request.arguments
-            );
+            eprintln!("le> Proposed {:?} action: {}", request.effect, request.tool);
+            if let Some(preview) = &request.preview {
+                eprintln!("{preview}");
+            } else {
+                eprintln!("arguments: {}", request.arguments);
+            }
+            eprintln!("le> Allow this exact action? [y/N]");
             eprint!("you> ");
             io::stderr().flush().ok()?;
             let mut answer = String::new();

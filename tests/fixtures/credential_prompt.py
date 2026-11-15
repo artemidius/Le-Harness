@@ -270,6 +270,15 @@ def main() -> None:
     assert any(
         tool["function"]["name"] == "create_file" for tool in first_request["tools"]
     )
+    offered_tools = {tool["function"]["name"] for tool in first_request["tools"]}
+    assert {
+        "read_file",
+        "file_metadata",
+        "create_file",
+        "replace_text",
+        "replace_file",
+        "delete_file",
+    } <= offered_tools
     assert len(ModelHandler.request_bodies) == 4
     replayed_call = ModelHandler.request_bodies[1]["messages"][-2]["tool_calls"][0]
     assert replayed_call["id"] == "fixture-call"
