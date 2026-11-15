@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use async_trait::async_trait;
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::runtime::{ToolHandler, ToolInvocation, ToolResult};
@@ -42,6 +43,22 @@ pub struct SearchMatch {
     pub line: usize,
     pub column: usize,
     pub preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TextFileSnapshot {
+    pub path: String,
+    pub sha256: String,
+    pub size: u64,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FileMetadata {
+    pub path: String,
+    pub sha256: String,
+    pub size: u64,
+    pub utf8: bool,
 }
 
 impl Repository {
@@ -117,6 +134,48 @@ impl Repository {
         String::from_utf8(bytes).map_err(|_| RepositoryError::Binary)
     }
 
+    pub fn text_snapshot(
+        &self,
+        relative: impl AsRef<Path>,
+        max_bytes: usize,
+    ) -> Result<TextFileSnapshot, RepositoryError> {
+        let relative = relative.as_ref();
+        let content = self.read_text(relative, max_bytes)?;
+        Ok(TextFileSnapshot {
+            path: path_text(relative),
+            sha256: hash(content.as_bytes()),
+            size: content.len() as u64,
+            content,
+        })
+    }
+
+    pub fn file_metadata(
+        &self,
+        relative: impl AsRef<Path>,
+        max_bytes: usize,
+    ) -> Result<FileMetadata, RepositoryError> {
+        let relative = relative.as_ref();
+        let path = self.resolve_file(relative)?;
+        let metadata = fs::metadata(&path)?;
+        if metadata.len() > max_bytes as u64 {
+            return Err(RepositoryError::TooLarge { limit: max_bytes });
+        }
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        File::open(path)?
+            .take(max_bytes.saturating_add(1) as u64)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > max_bytes {
+            return Err(RepositoryError::TooLarge { limit: max_bytes });
+        }
+        let utf8 = !bytes.contains(&0) && std::str::from_utf8(&bytes).is_ok();
+        Ok(FileMetadata {
+            path: path_text(relative),
+            sha256: hash(&bytes),
+            size: bytes.len() as u64,
+            utf8,
+        })
+    }
+
     pub fn search_text(
         &self,
         query: &str,
@@ -162,7 +221,11 @@ impl Repository {
         {
             return Err(RepositoryError::InvalidPath);
         }
-        let path = self.root.join(relative).canonicalize()?;
+        let joined = self.root.join(relative);
+        if fs::symlink_metadata(&joined)?.file_type().is_symlink() {
+            return Err(RepositoryError::OutsideRoot);
+        }
+        let path = joined.canonicalize()?;
         if !path.starts_with(&self.root) {
             return Err(RepositoryError::OutsideRoot);
         }
@@ -177,6 +240,10 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+fn hash(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
 #[derive(Debug, Clone)]
 pub struct RepositoryToolHandler {
     repository: Repository,
@@ -187,6 +254,7 @@ pub struct RepositoryToolHandler {
 pub struct RepositoryToolLimits {
     pub max_files: usize,
     pub max_read_bytes: usize,
+    pub max_hash_bytes: usize,
     pub max_search_results: usize,
 }
 
@@ -195,6 +263,7 @@ impl Default for RepositoryToolLimits {
         Self {
             max_files: 10_000,
             max_read_bytes: 1024 * 1024,
+            max_hash_bytes: 64 * 1024 * 1024,
             max_search_results: 200,
         }
     }
@@ -229,7 +298,14 @@ impl ToolHandler for RepositoryToolHandler {
             "read_file" => {
                 parse_arguments::<ReadArguments>(&invocation.arguments).and_then(|args| {
                     self.repository
-                        .read_text(args.path, self.limits.max_read_bytes)
+                        .text_snapshot(args.path, self.limits.max_read_bytes)
+                        .and_then(json_value)
+                })
+            }
+            "file_metadata" => {
+                parse_arguments::<ReadArguments>(&invocation.arguments).and_then(|args| {
+                    self.repository
+                        .file_metadata(args.path, self.limits.max_hash_bytes)
                         .and_then(json_value)
                 })
             }
@@ -327,6 +403,21 @@ mod tests {
             repository.read_text("binary", 4),
             Err(RepositoryError::Binary)
         ));
+    }
+
+    #[test]
+    fn snapshots_text_and_hashes_binary_metadata() {
+        let (directory, repository) = fixture();
+        let snapshot = repository.text_snapshot("keep.rs", 100).unwrap();
+        assert_eq!(snapshot.path, "keep.rs");
+        assert_eq!(snapshot.size, snapshot.content.len() as u64);
+        assert_eq!(snapshot.sha256, hash(snapshot.content.as_bytes()));
+
+        fs::write(directory.path().join("binary"), [0, 1, 2]).unwrap();
+        let metadata = repository.file_metadata("binary", 100).unwrap();
+        assert_eq!(metadata.size, 3);
+        assert_eq!(metadata.sha256, hash(&[0, 1, 2]));
+        assert!(!metadata.utf8);
     }
 
     #[test]
